@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FotyaTools - Скачать</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+        
+        .container {
+            text-align: center;
+            padding: 40px;
+            max-width: 800px;
+        }
+        
+        .logo {
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            font-size: 48px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            font-size: 18px;
+            color: #94a3b8;
+            margin-bottom: 40px;
+        }
+        
+        .version {
+            display: inline-block;
+            background: rgba(124, 58, 237, 0.2);
+            border: 1px solid #7c3aed;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            margin-bottom: 40px;
+        }
+        
+        .buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 20px 40px;
+            font-size: 18px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-mac {
+            background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+            color: #fff;
+            border: 1px solid #4b5563;
+        }
+        
+        .btn-mac:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+        
+        .btn-windows {
+            background: linear-gradient(135deg, #0078d4 0%, #0063b1 100%);
+            color: #fff;
+        }
+        
+        .btn-windows:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0, 120, 212, 0.3);
+        }
+        
+        .btn-icon {
+            font-size: 28px;
+        }
+        
+        .features {
+            margin-top: 60px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .feature {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        .feature-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .feature-desc {
+            font-size: 13px;
+            color: #94a3b8;
+        }
+        
+        .footer {
+            margin-top: 60px;
+            font-size: 13px;
+            color: #64748b;
+        }
+        
+        .footer a {
+            color: #7c3aed;
+            text-decoration: none;
+        }
+        
+        @media (max-width: 600px) {
+            h1 { font-size: 32px; }
+            .btn { padding: 16px 24px; font-size: 16px; }
+            .buttons { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">📸</div>
+        <h1>FotyaTools</h1>
+        <p class="subtitle">Профессиональные инструменты для обработки фотографий</p>
+        
+        <div class="version" id="version">v1.0.9</div>
+        
+        <div class="buttons">
+            <a href="https://github.com/pavkor1-design/fotya-tools/releases/latest/download/fotya_tools_v1.0.9.zip" 
+               class="btn btn-mac" id="btn-mac">
+                <span class="btn-icon">🍎</span>
+                <span>Скачать для Mac</span>
+            </a>
+            
+            <a href="https://github.com/pavkor1-design/fotya-tools/releases/latest/download/fotya_tools_v1.0.9.zip" 
+               class="btn btn-windows" id="btn-windows">
+                <span class="btn-icon">🪟</span>
+                <span>Скачать для Windows</span>
+            </a>
+        </div>
+        
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">🎨</div>
+                <div class="feature-title">Редактирование</div>
+                <div class="feature-desc">Мощные инструменты обработки фото</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🤖</div>
+                <div class="feature-title">AI-генерация</div>
+                <div class="feature-desc">Генерация изображений с помощью ИИ</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🔄</div>
+                <div class="feature-title">Автообновления</div>
+                <div class="feature-desc">Автоматические обновления приложения</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">☁️</div>
+                <div class="feature-title">Облачная синхронизация</div>
+                <div class="feature-desc">Синхронизация между устройствами</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>© 2024 FotyaTools. Все права защищены.</p>
+            <p style="margin-top: 10px;">
+                <a href="https://github.com/pavkor1-design/fotya-tools/releases">Все версии</a>
+            </p>
+        </div>
+    </div>
+    
+    <script>
+        // Автоматически получаем последнюю версию из GitHub API
+        fetch('https://api.github.com/repos/pavkor1-design/fotya-tools/releases/latest')
+            .then(r => r.json())
+            .then(data => {
+                if (data.tag_name) {
+                    document.getElementById('version').textContent = data.tag_name;
+                    
+                    // Обновляем ссылки на скачивание
+                    const asset = data.assets.find(a => a.name.endsWith('.zip'));
+                    if (asset) {
+                        document.getElementById('btn-mac').href = asset.browser_download_url;
+                        document.getElementById('btn-windows').href = asset.browser_download_url;
+                    }
+                }
+            })
+            .catch(() => {});
+    </script>
+</body>
+</html>
