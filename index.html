@@ -82,22 +82,27 @@
         .btn-mac {
             background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
             color: #fff;
-            border: 1px solid #4b5563;
+            border: 2px solid #4b5563;
         }
         
         .btn-mac:hover {
             transform: translateY(-3px);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 10px 30px rgba(255, 255, 255, 0.2);
+            border-color: #9ca3af;
+            background: linear-gradient(135deg, #4b5563 0%, #374151 100%);
         }
         
         .btn-windows {
             background: linear-gradient(135deg, #0078d4 0%, #0063b1 100%);
             color: #fff;
+            border: 2px solid transparent;
         }
         
         .btn-windows:hover {
             transform: translateY(-3px);
-            box-shadow: 0 10px 30px rgba(0, 120, 212, 0.3);
+            box-shadow: 0 10px 30px rgba(0, 120, 212, 0.4);
+            background: linear-gradient(135deg, #1a8fe3 0%, #0078d4 100%);
+            border-color: #40a9ff;
         }
         
         .btn-icon {
@@ -198,7 +203,7 @@
         </div>
         
         <div class="footer">
-            <p>© 2024 FotyaTools. Все права защищены.</p>
+            <p>© <span id="year"></span> FotyaTools. Все права защищены.</p>
             <p style="margin-top: 10px;">
                 <a href="https://github.com/pavkor1-design/fotya-tools/releases">Все версии</a>
             </p>
@@ -206,6 +211,8 @@
     </div>
     
     <script>
+        // Динамический год
+        document.getElementById('year').textContent = new Date().getFullYear();
         // Автоматически получаем последнюю версию из GitHub API
         fetch('https://api.github.com/repos/pavkor1-design/fotya-tools/releases/latest')
             .then(r => r.json())
