@@ -101,14 +101,13 @@ class LicenseManager:
     
     def _get_gist_content(self) -> Optional[Dict]:
         """Получает содержимое гиста с базой пользователей"""
-        if not self.github_token or not self.gist_id:
+        if not self.gist_id:
             return None
         
         try:
-            headers = {
-                "Authorization": f"token {self.github_token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
+            # Сначала пробуем без токена (публичный Gist)
+            headers = {"Accept": "application/vnd.github.v3+json"}
+            
             response = requests.get(
                 f"https://api.github.com/gists/{self.gist_id}",
                 headers=headers,
