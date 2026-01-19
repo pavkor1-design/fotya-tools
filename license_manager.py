@@ -22,7 +22,7 @@ APP_VERSION = "1.0.12"
 
 # GitHub Gist настройки (обфусцированы)
 import base64
-_T = "Z2hwX1EzVHZCTTdwdHdXeGhrWnpFUVZDQkhNVUNjbjcxTzF0SlgwNg=="
+_T = "Z2hwX0RxNVJ6YVA4eXFGQ2NZaDYyd3U4UTdibzJBUGlkejJySHExdg=="
 GITHUB_TOKEN = base64.b64decode(_T).decode()
 GIST_ID = "78cb19f63f6af332e63738a6eb9587e7"
 GITHUB_REPO = "pavkor1-design/fotya-tools"  # Репозиторий для обновлений
