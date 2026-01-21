@@ -7,7 +7,25 @@ Helvetica шрифт, плавные анимации
 
 import os
 import sys
+import ssl
 import shutil
+
+# === ИСПРАВЛЕНИЕ SSL ДЛЯ macOS ===
+# На некоторых Mac с Python 3.6+ SSL сертификаты не установлены
+# Это вызывает ошибку CERTIFICATE_VERIFY_FAILED при работе с API
+try:
+    import certifi
+    os.environ['SSL_CERT_FILE'] = certifi.where()
+    os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+except ImportError:
+    pass
+
+# Альтернативный метод - отключение проверки SSL (менее безопасно, но работает)
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+
 import requests
 import queue
 import traceback
@@ -566,39 +584,8 @@ class PhotoToolsApp(ctk.CTk):
         os.makedirs(self.autosave_folder, exist_ok=True)
         self.autosave_file = os.path.join(self.autosave_folder, "autosave.json")
         
-        # Инициализация состояния автокликера (один раз при запуске)
-        logger.info("Initializing autoclicker state...")
-        self.ac_recording = False
-        self.ac_playing = False
-        self.ac_is_real_recording = False
-        self.ac_recorded_actions = []
-        self.ac_start_time = 0
-        self.ac_speed_multiplier = 1.0
-        self.ac_keyboard_listener = None
-        self.ac_mouse_listener = None
-        self.ac_saves_folder = os.path.expanduser("~/Documents/AutoClicker")
-        os.makedirs(self.ac_saves_folder, exist_ok=True)
-        
-        # Инициализация mouse controller для автокликера
-        try:
-            from pynput.mouse import Controller as MouseController
-            self.ac_mouse_controller = MouseController()
-            logger.info("Mouse controller initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize mouse controller: {e}")
-            self.ac_mouse_controller = None
-        
         logger.info("Creating UI...")
         self.create_ui()
-        
-        # Настройка горячих клавиш автокликера (отложенный запуск для стабильности)
-        def delayed_hotkeys():
-            try:
-                self.ac_setup_global_hotkeys()
-            except Exception as e:
-                logger.error(f"Error setting up hotkeys: {e}")
-        
-        self.after(2000, delayed_hotkeys)  # Запуск через 2 секунды после старта
         
         # Загружаем сохранённое состояние
         logger.info("Loading autosave...")
@@ -746,7 +733,6 @@ class PhotoToolsApp(ctk.CTk):
             ("🎬", "Раскадровка", COLORS["teal"]),
             ("🎨", "Редактор", COLORS["success"]),
             ("🤖", "AI", COLORS["danger"]),
-            ("🖱️", "Clicker", COLORS["secondary"]),
         ]
         
         self.nav_buttons = {}
@@ -773,7 +759,7 @@ class PhotoToolsApp(ctk.CTk):
         
         # Создаём фреймы для каждой вкладки
         self.tab_frames = {}
-        tab_names = ["Upscale", "Сжатие", "Ватермарка", "Сортировка", "Aspect", "Раскадровка", "Редактор", "AI", "Clicker"]
+        tab_names = ["Upscale", "Сжатие", "Ватермарка", "Сортировка", "Aspect", "Раскадровка", "Редактор", "AI"]
         
         for name in tab_names:
             frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -788,7 +774,6 @@ class PhotoToolsApp(ctk.CTk):
         self.tab_storyboard = self.tab_frames["Раскадровка"]
         self.tab_editor = self.tab_frames["Редактор"]
         self.tab_ai = self.tab_frames["AI"]
-        self.tab_autoclicker = self.tab_frames["Clicker"]
         
         # Заполняем вкладки
         self.create_upscale_tab()
@@ -799,7 +784,6 @@ class PhotoToolsApp(ctk.CTk):
         self.create_storyboard_tab()
         self.create_editor_tab()
         self.create_ai_tab()
-        self.create_autoclicker_tab()
         
         # Показываем первую вкладку
         self.show_tab("Upscale")
@@ -921,7 +905,7 @@ class PhotoToolsApp(ctk.CTk):
                     font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
                     text_color=COLORS["text_primary"]).pack(pady=(10, 10))
         
-        tab_names = ["Upscale", "Сжатие", "Ватермарка", "Сортировка", "Aspect", "Раскадровка", "Редактор", "AI", "Clicker"]
+        tab_names = ["Upscale", "Сжатие", "Ватермарка", "Сортировка", "Aspect", "Раскадровка", "Редактор", "AI"]
         
         self.tab_vars = {}
         
@@ -7067,25 +7051,6 @@ end tell
         self.ai_progress.pack(pady=3)
         self.ai_progress.set(0)
         
-        # === КНОПКА KLING WORKSPACE (внизу левой панели) ===
-        kling_frame = ctk.CTkFrame(left_panel, fg_color=COLORS["bg_secondary"], corner_radius=GLASS_CORNER_RADIUS_SMALL)
-        kling_frame.pack(fill="x", padx=5, pady=(10, 5), side="bottom")
-        
-        ctk.CTkLabel(kling_frame, text="🎬 Kling AI Video",
-                    font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-                    text_color=COLORS["text_primary"]).pack(anchor="w", padx=8, pady=(8, 5))
-        
-        ctk.CTkLabel(kling_frame, text="Генерация видео из изображений",
-                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                    text_color=COLORS["text_secondary"]).pack(anchor="w", padx=8, pady=(0, 5))
-        
-        ctk.CTkButton(kling_frame, text="🚀 Открыть Kling Workspace", 
-                     command=self._open_kling_workspace,
-                     height=40, font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-                     fg_color=COLORS["purple"] if "purple" in COLORS else "#AF52DE", 
-                     hover_color="#9B3DC9",
-                     corner_radius=8).pack(fill="x", padx=8, pady=(0, 8))
-        
         # === ПРАВАЯ ПАНЕЛЬ - OUTPUT ===
         right_panel = ctk.CTkFrame(tab, fg_color=COLORS["bg_tertiary"], corner_radius=GLASS_CORNER_RADIUS)
         right_panel.grid(row=0, column=1, padx=(5, 10), pady=10, sticky="nsew")
@@ -9387,16 +9352,30 @@ end tell
         # Сохраняем в главную рабочую папку (output_folder)
         horizontal_folder = os.path.join(self.output_folder, "horizontal")
         vertical_folder = os.path.join(self.output_folder, "vertical")
-        os.makedirs(horizontal_folder, exist_ok=True)
-        os.makedirs(vertical_folder, exist_ok=True)
+        
+        try:
+            os.makedirs(horizontal_folder, exist_ok=True)
+            os.makedirs(vertical_folder, exist_ok=True)
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Ошибка", f"Не удалось создать папки: {e}"))
+            return
         
         image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.heic', '.tiff', '.bmp', '.gif'}
-        files = [(f, os.path.join(source_folder, f)) for f in os.listdir(source_folder)
-                 if os.path.isfile(os.path.join(source_folder, f)) and 
-                 os.path.splitext(f)[1].lower() in image_extensions]
+        
+        try:
+            files = [(f, os.path.join(source_folder, f)) for f in os.listdir(source_folder)
+                     if os.path.isfile(os.path.join(source_folder, f)) and 
+                     os.path.splitext(f)[1].lower() in image_extensions]
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Ошибка", f"Не удалось прочитать папку: {e}"))
+            return
         
         total = len(files)
-        stats = {"horizontal": 0, "vertical": 0}
+        if total == 0:
+            self.after(0, lambda: messagebox.showwarning("Внимание", "В папке нет изображений"))
+            return
+        
+        stats = {"horizontal": 0, "vertical": 0, "errors": 0}
         
         for i, (filename, filepath) in enumerate(files):
             try:
@@ -9408,15 +9387,32 @@ end tell
                     else:
                         shutil.copy(filepath, os.path.join(vertical_folder, filename))
                         stats["vertical"] += 1
-            except:
-                pass
-            self.sort_progress.set((i + 1) / total if total > 0 else 1)
+            except Exception as e:
+                stats["errors"] += 1
+                logger.warning(f"Ошибка при обработке {filename}: {e}")
+            
+            # Обновляем прогресс через главный поток
+            progress = (i + 1) / total
+            self.after(0, lambda p=progress: self.sort_progress.set(p))
         
         result = f"✅ Горизонтальных: {stats['horizontal']}, Вертикальных: {stats['vertical']}"
-        self.sort_status.configure(text=result)
-        self.status_bar.configure(text=result)
-        messagebox.showinfo("Готово", f"{result}\n\nСохранено в: {self.output_folder}")
-        os.system(f'open "{self.output_folder}"')
+        if stats["errors"] > 0:
+            result += f", Ошибок: {stats['errors']}"
+        
+        # Обновляем UI через главный поток
+        def finish():
+            self.sort_status.configure(text=result)
+            self.status_bar.configure(text=result)
+            messagebox.showinfo("Готово", f"{result}\n\nСохранено в: {self.output_folder}")
+            # Открываем папку (кроссплатформенно)
+            if sys.platform == 'darwin':
+                subprocess.run(['open', self.output_folder])
+            elif sys.platform == 'win32':
+                subprocess.run(['explorer', self.output_folder])
+            else:
+                subprocess.run(['xdg-open', self.output_folder])
+        
+        self.after(0, finish)
     
     # --- Aspect Ratio ---
     def select_crop_folder(self):
