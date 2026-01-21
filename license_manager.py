@@ -18,7 +18,7 @@ import threading
 import time
 
 # Версия приложения
-APP_VERSION = "1.0.14"
+APP_VERSION = "1.0.15"
 
 # API сервер на TimeWeb
 AUTH_API_URL = "http://5.129.203.43:8085/api"
@@ -353,9 +353,15 @@ class LicenseManager:
         return {}
     
     def get_current_server_version(self) -> str:
-        """Получает текущую версию с сервера"""
-        settings = self.get_settings()
-        return settings.get("app_version", APP_VERSION)
+        """Получает текущую версию с сервера обновлений"""
+        try:
+            # Используем API обновлений, а не settings
+            result = self._api_request("GET", "/updates/latest")
+            if result and result.get("success"):
+                return result.get("version", APP_VERSION)
+        except:
+            pass
+        return APP_VERSION
     
     def publish_update(self, version: str, description: str, download_url: str = "") -> tuple[bool, str]:
         """Публикует обновление"""
@@ -374,12 +380,14 @@ class LicenseManager:
         return False, "Ошибка публикации"
     
     def check_for_updates(self) -> tuple[bool, str, str]:
-        """Проверяет наличие обновлений"""
-        server_version = self.get_current_server_version()
-        
-        if self._compare_versions(server_version, APP_VERSION) > 0:
-            settings = self.get_settings()
-            return True, server_version, settings.get("download_url", "")
+        """Проверяет наличие обновлений через API"""
+        try:
+            # Используем правильный API для проверки обновлений
+            result = self._api_request("GET", f"/updates/check/{APP_VERSION}")
+            if result and result.get("success") and result.get("has_update"):
+                return True, result.get("latest_version", ""), result.get("download_url", "")
+        except Exception as e:
+            logger.warning(f"Update check failed: {e}")
         
         return False, APP_VERSION, ""
     

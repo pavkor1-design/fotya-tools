@@ -1069,12 +1069,15 @@ class PhotoToolsApp(ctk.CTk):
         """Проверяет обновления в фоне и показывает индикатор"""
         def check():
             try:
-                update = license_manager.check_for_updates()
-                if update:
-                    # Показываем индикатор обновления
-                    self.after(0, lambda: self._show_update_indicator(header, update))
-            except:
-                pass
+                has_update, version, download_url = license_manager.check_for_updates()
+                if has_update and version:
+                    update_info = {
+                        'version': version,
+                        'download_url': download_url
+                    }
+                    self.after(0, lambda: self._show_update_indicator(header, update_info))
+            except Exception as e:
+                logger.warning(f"Update check error: {e}")
         
         # Запускаем в фоне
         threading.Thread(target=check, daemon=True).start()

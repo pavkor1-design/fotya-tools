@@ -25,3 +25,12 @@ ENV/
 # Output folders
 output/
 processed/
+
+# Build artifacts
+_build_artifacts/
+build/
+dist/
+*.dmg
+
+# Test files
+test_*.py
