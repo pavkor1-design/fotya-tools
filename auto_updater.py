@@ -532,8 +532,8 @@ def publish_update(new_version: str, description: str = "", base_dir: str = None
     except:
         pass
     
-    # 4. Создаём GitHub Release
-    update_status("🐙 Создание GitHub Release...")
+    # 4. Создаём GitHub Release (DMG ~290MB, может занять 3-5 минут)
+    update_status("🐙 GitHub Release (загрузка DMG ~3-5 мин)...")
     try:
         github_result = create_github_release(new_version, description, base_dir)
     except Exception as e:
