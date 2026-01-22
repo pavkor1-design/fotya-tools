@@ -20,6 +20,36 @@ import subprocess
 import requests
 from datetime import datetime
 
+
+def is_app_translocated() -> bool:
+    """
+    Проверяет, запущено ли приложение из AppTranslocation (read-only)
+    Это происходит когда приложение скачано из интернета и не перемещено в Applications
+    """
+    app_path = os.path.dirname(os.path.abspath(__file__))
+    # AppTranslocation директории содержат '/AppTranslocation/' в пути
+    return '/AppTranslocation/' in app_path or app_path.startswith('/private/var/folders')
+
+
+def get_real_app_path() -> str:
+    """
+    Возвращает реальный путь к приложению (не translocated)
+    Если приложение в Applications - возвращает путь там
+    """
+    # Стандартные пути установки
+    standard_paths = [
+        '/Applications/PhotoTools.app/Contents/Frameworks',
+        os.path.expanduser('~/Applications/PhotoTools.app/Contents/Frameworks'),
+    ]
+    
+    for path in standard_paths:
+        if os.path.exists(path):
+            return path
+    
+    # Если не нашли - возвращаем текущий путь
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 # URL API сервера
 API_URL = "http://5.129.203.43:8085/api"
 
@@ -503,9 +533,16 @@ def publish_update(new_version: str, description: str = "", base_dir: str = None
 def download_and_install_update(download_url: str, version: str) -> tuple:
     """
     Скачивает и устанавливает обновление
+    Обрабатывает случай AppTranslocation (read-only filesystem)
     """
     try:
         print(f"\n📥 Скачивание обновления v{version}...")
+        
+        # Проверяем AppTranslocation
+        if is_app_translocated():
+            print("⚠️ Приложение запущено из защищённой директории (AppTranslocation)")
+            # Скачиваем DMG в Downloads для ручной установки
+            return _download_dmg_for_manual_install(version)
         
         resp = requests.get(download_url, stream=True, timeout=120)
         if resp.status_code != 200:
@@ -529,8 +566,20 @@ def download_and_install_update(download_url: str, version: str) -> tuple:
         print()
         print(f"✅ Скачано: {os.path.getsize(temp_zip) / 1024:.1f} KB")
         
-        # Распаковываем
+        # Определяем директорию для установки
         app_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Проверяем можем ли записать в директорию
+        test_file = os.path.join(app_dir, ".write_test")
+        try:
+            with open(test_file, 'w') as f:
+                f.write("test")
+            os.remove(test_file)
+        except (IOError, OSError) as e:
+            print(f"⚠️ Нет прав на запись в {app_dir}")
+            os.remove(temp_zip)
+            return _download_dmg_for_manual_install(version)
+        
         backup_dir = os.path.join(tempfile.gettempdir(), f"fotya_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         
         print(f"📦 Распаковка...")
@@ -563,14 +612,64 @@ def download_and_install_update(download_url: str, version: str) -> tuple:
         return False, f"Ошибка установки: {str(e)}"
 
 
+def _download_dmg_for_manual_install(version: str) -> tuple:
+    """
+    Скачивает DMG из GitHub Releases для ручной установки
+    """
+    try:
+        # Получаем URL DMG из GitHub
+        dmg_url = f"https://github.com/pavkor1-design/fotya-tools/releases/download/v{version}/PhotoTools-{version}.dmg"
+        
+        downloads_dir = os.path.expanduser("~/Downloads")
+        dmg_path = os.path.join(downloads_dir, f"PhotoTools-{version}.dmg")
+        
+        print(f"📥 Скачивание DMG из GitHub...")
+        print(f"   URL: {dmg_url}")
+        
+        resp = requests.get(dmg_url, stream=True, timeout=120)
+        if resp.status_code != 200:
+            return False, f"DMG не найден на GitHub (HTTP {resp.status_code}).\n\nСкачайте вручную: https://github.com/pavkor1-design/fotya-tools/releases"
+        
+        total_size = int(resp.headers.get('content-length', 0))
+        downloaded = 0
+        
+        with open(dmg_path, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0:
+                    percent = (downloaded / total_size) * 100
+                    print(f"\r   Загружено: {downloaded / 1024:.1f} KB ({percent:.0f}%)", end="")
+        
+        print(f"\n✅ DMG скачан: {dmg_path}")
+        
+        # Открываем папку Downloads
+        subprocess.run(["open", downloads_dir], capture_output=True)
+        
+        return True, f"DMG скачан в Downloads.\n\n1. Откройте {os.path.basename(dmg_path)}\n2. Перетащите PhotoTools в Applications\n3. Запустите новую версию"
+        
+    except Exception as e:
+        return False, f"Ошибка скачивания DMG: {str(e)}\n\nСкачайте вручную: https://github.com/pavkor1-design/fotya-tools/releases"
+
+
 def download_and_install_update_with_progress(download_url: str, version: str, progress_callback=None) -> tuple:
     """
     Скачивает и устанавливает обновление с отображением прогресса
     progress_callback(progress: float 0-1, status: str)
+    Обрабатывает случай AppTranslocation (read-only filesystem)
     """
     try:
         if progress_callback:
-            progress_callback(0, "Подключение к серверу...")
+            progress_callback(0, "Проверка системы...")
+        
+        # Проверяем AppTranslocation
+        if is_app_translocated():
+            if progress_callback:
+                progress_callback(0.1, "Приложение в защищённой директории...")
+            return _download_dmg_with_progress(version, progress_callback)
+        
+        if progress_callback:
+            progress_callback(0.05, "Подключение к серверу...")
         
         resp = requests.get(download_url, stream=True, timeout=120)
         if resp.status_code != 200:
@@ -591,10 +690,26 @@ def download_and_install_update_with_progress(download_url: str, version: str, p
                     progress_callback(progress, f"Скачивание: {size_kb:.0f} / {total_kb:.0f} KB")
         
         if progress_callback:
+            progress_callback(0.72, "Проверка прав записи...")
+        
+        # Определяем директорию для установки
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Проверяем можем ли записать в директорию
+        test_file = os.path.join(app_dir, ".write_test")
+        try:
+            with open(test_file, 'w') as f:
+                f.write("test")
+            os.remove(test_file)
+        except (IOError, OSError):
+            os.remove(temp_zip)
+            if progress_callback:
+                progress_callback(0.1, "Нет прав записи, скачиваю DMG...")
+            return _download_dmg_with_progress(version, progress_callback)
+        
+        if progress_callback:
             progress_callback(0.75, "Создание резервной копии...")
         
-        # Распаковываем
-        app_dir = os.path.dirname(os.path.abspath(__file__))
         backup_dir = os.path.join(tempfile.gettempdir(), f"fotya_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
         
         with zipfile.ZipFile(temp_zip, 'r') as zipf:
@@ -622,6 +737,51 @@ def download_and_install_update_with_progress(download_url: str, version: str, p
         
     except Exception as e:
         return False, f"Ошибка: {str(e)}"
+
+
+def _download_dmg_with_progress(version: str, progress_callback=None) -> tuple:
+    """
+    Скачивает DMG с прогрессом для ручной установки
+    """
+    try:
+        dmg_url = f"https://github.com/pavkor1-design/fotya-tools/releases/download/v{version}/PhotoTools-{version}.dmg"
+        
+        downloads_dir = os.path.expanduser("~/Downloads")
+        dmg_path = os.path.join(downloads_dir, f"PhotoTools-{version}.dmg")
+        
+        if progress_callback:
+            progress_callback(0.15, "Скачивание DMG из GitHub...")
+        
+        resp = requests.get(dmg_url, stream=True, timeout=120)
+        if resp.status_code != 200:
+            return False, f"DMG не найден (HTTP {resp.status_code}).\n\nСкачайте вручную:\nhttps://github.com/pavkor1-design/fotya-tools/releases"
+        
+        total_size = int(resp.headers.get('content-length', 0))
+        downloaded = 0
+        
+        with open(dmg_path, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0 and progress_callback:
+                    progress = 0.15 + (downloaded / total_size * 0.8)
+                    size_mb = downloaded / 1024 / 1024
+                    total_mb = total_size / 1024 / 1024
+                    progress_callback(progress, f"Скачивание DMG: {size_mb:.1f} / {total_mb:.1f} MB")
+        
+        if progress_callback:
+            progress_callback(0.98, "Открытие папки Downloads...")
+        
+        # Открываем DMG автоматически
+        subprocess.run(["open", dmg_path], capture_output=True)
+        
+        if progress_callback:
+            progress_callback(1.0, "✅ DMG скачан и открыт!")
+        
+        return True, f"DMG скачан и открыт.\n\n1. Перетащите PhotoTools в Applications\n2. Закройте это приложение\n3. Запустите новую версию из Applications"
+        
+    except Exception as e:
+        return False, f"Ошибка: {str(e)}\n\nСкачайте вручную:\nhttps://github.com/pavkor1-design/fotya-tools/releases"
 
 
 def list_updates() -> list:

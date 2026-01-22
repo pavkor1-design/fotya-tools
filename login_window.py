@@ -677,6 +677,15 @@ class AdminPanel(ctk.CTkToplevel):
         
         publish_btn = ctk.CTkButton(dialog, text="🚀 Опубликовать", height=40, fg_color=COLORS["success"])
         
+        def update_status(text, color=None):
+            """Helper для обновления статуса из любого потока"""
+            try:
+                if dialog.winfo_exists():
+                    status_label.configure(text=text, text_color=color or COLORS["text_secondary"])
+                    dialog.update_idletasks()
+            except:
+                pass
+        
         def publish():
             new_version = version_entry.get().strip()
             description = desc_entry.get("1.0", "end").strip()
@@ -693,26 +702,39 @@ class AdminPanel(ctk.CTkToplevel):
                 # Полная публикация с загрузкой файлов
                 def do_full_publish():
                     try:
+                        # Обновляем статус на каждом этапе
+                        dialog.after(0, lambda: update_status("📦 Создание архива..."))
+                        
                         from auto_updater import publish_update
                         success, msg = publish_update(new_version, description)
-                        dialog.after(0, lambda: finish_publish(success, msg))
+                        
+                        # Вызываем finish_publish в главном потоке
+                        dialog.after(0, lambda s=success, m=msg: finish_publish(s, m))
                     except Exception as e:
-                        dialog.after(0, lambda: finish_publish(False, str(e)))
+                        import traceback
+                        error_msg = f"{str(e)}\n{traceback.format_exc()[:200]}"
+                        dialog.after(0, lambda: finish_publish(False, error_msg))
                 
                 import threading
-                threading.Thread(target=do_full_publish, daemon=True).start()
+                t = threading.Thread(target=do_full_publish, daemon=True)
+                t.start()
             else:
                 # Только обновление версии в Gist
                 success, msg = license_manager.publish_update(new_version, description, "")
                 finish_publish(success, msg)
         
         def finish_publish(success, msg):
-            publish_btn.configure(state="normal", text="🚀 Опубликовать")
-            if success:
-                status_label.configure(text="✅ " + msg, text_color=COLORS["success"])
-                dialog.after(2000, dialog.destroy)
-            else:
-                status_label.configure(text="❌ " + msg, text_color=COLORS["danger"])
+            try:
+                if not dialog.winfo_exists():
+                    return
+                publish_btn.configure(state="normal", text="🚀 Опубликовать")
+                if success:
+                    status_label.configure(text="✅ " + str(msg), text_color=COLORS["success"])
+                    dialog.after(2000, dialog.destroy)
+                else:
+                    status_label.configure(text="❌ " + str(msg)[:100], text_color=COLORS["danger"])
+            except Exception as e:
+                print(f"finish_publish error: {e}")
         
         publish_btn.configure(command=publish)
         publish_btn.pack(fill="x", padx=20, pady=10)
