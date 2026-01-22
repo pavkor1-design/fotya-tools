@@ -7065,7 +7065,7 @@ end tell
                     font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=8, pady=(5, 3))
         
-        self.wide_model_var = ctk.StringVar(value="seedream")
+        self.wide_model_var = ctk.StringVar(value="nana")
         wide_model_row = ctk.CTkFrame(self.wide_settings_frame, fg_color="transparent")
         wide_model_row.pack(fill="x", padx=8, pady=3)
         
