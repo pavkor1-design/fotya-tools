@@ -810,7 +810,7 @@ class PhotoToolsApp(ctk.CTk):
                                           text_color=COLORS["text_secondary"])
         self.version_label.pack(side="right", padx=10, pady=5)
         
-        self.status_bar = ctk.CTkLabel(status_frame, text="© Фотя. Все права защищены 2026", 
+        self.status_bar = ctk.CTkLabel(status_frame, text="© Фотя. Все права защищены", 
                                        font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                                        text_color=COLORS["text_secondary"])
         self.status_bar.pack(pady=5)
