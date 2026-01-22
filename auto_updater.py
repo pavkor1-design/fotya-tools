@@ -488,26 +488,43 @@ xattr -cr /Applications/PhotoTools.app
         return {"success": False, "message": str(e)}
 
 
-def publish_update(new_version: str, description: str = "", base_dir: str = None) -> tuple:
+def publish_update(new_version: str, description: str = "", base_dir: str = None, status_callback=None) -> tuple:
     """
     Полный цикл публикации обновления:
     1. Создаёт ZIP-архив
     2. Загружает на сервер TimeWeb
     3. Обновляет версию в базе
+    
+    status_callback(text) - функция для обновления статуса в UI
     """
-    print("\n" + "=" * 50)
-    print(f"🚀 ПУБЛИКАЦИЯ ВЕРСИИ {new_version}")
-    print("=" * 50)
+    def update_status(text):
+        print(text)
+        if status_callback:
+            try:
+                status_callback(text)
+            except:
+                pass
+    
+    update_status("📦 Создание архива...")
     
     # 1. Создаём ZIP
-    zip_path = create_release_zip(new_version, base_dir=base_dir)
+    try:
+        zip_path = create_release_zip(new_version, base_dir=base_dir)
+        update_status("✅ Архив создан")
+    except Exception as e:
+        return False, f"Ошибка создания архива: {e}"
     
     # 2. Загружаем на сервер
-    result = upload_update(zip_path, new_version, description)
+    update_status("☁️ Загрузка на сервер...")
+    try:
+        result = upload_update(zip_path, new_version, description)
+    except Exception as e:
+        return False, f"Ошибка загрузки: {e}"
     
     if not result.get("success"):
-        print(f"\n❌ Ошибка публикации: {result.get('message')}")
         return False, result.get("message", "Ошибка загрузки")
+    
+    update_status("✅ Загружено на сервер")
     
     # 3. Удаляем временный файл
     try:
@@ -515,17 +532,18 @@ def publish_update(new_version: str, description: str = "", base_dir: str = None
     except:
         pass
     
-    # 4. Создаём GitHub Release (если доступен gh CLI)
-    github_result = create_github_release(new_version, description, base_dir)
+    # 4. Создаём GitHub Release
+    update_status("🐙 Создание GitHub Release...")
+    try:
+        github_result = create_github_release(new_version, description, base_dir)
+    except Exception as e:
+        # GitHub Release опционален
+        github_result = {"success": False, "message": str(e)}
     
-    print("\n" + "=" * 50)
-    print(f"🎉 ВЕРСИЯ {new_version} ОПУБЛИКОВАНА!")
-    print("=" * 50)
-    print(f"\n📥 URL для скачивания:")
-    print(f"   {result.get('download_url', 'N/A')}")
     if github_result.get("success"):
-        print(f"\n🐙 GitHub Release: {github_result.get('url', 'создан')}")
-    print(f"\n👥 Пользователи получат уведомление при следующем запуске")
+        update_status("✅ GitHub Release создан")
+    else:
+        update_status("⚠️ GitHub Release: " + github_result.get("message", "ошибка")[:50])
     
     return True, f"Версия {new_version} опубликована"
 

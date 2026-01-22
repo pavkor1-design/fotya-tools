@@ -702,11 +702,12 @@ class AdminPanel(ctk.CTkToplevel):
                 # Полная публикация с загрузкой файлов
                 def do_full_publish():
                     try:
-                        # Обновляем статус на каждом этапе
-                        dialog.after(0, lambda: update_status("📦 Создание архива..."))
+                        # Callback для обновления статуса из потока публикации
+                        def on_status(text):
+                            dialog.after(0, lambda t=text: update_status(t))
                         
                         from auto_updater import publish_update
-                        success, msg = publish_update(new_version, description)
+                        success, msg = publish_update(new_version, description, status_callback=on_status)
                         
                         # Вызываем finish_publish в главном потоке
                         dialog.after(0, lambda s=success, m=msg: finish_publish(s, m))

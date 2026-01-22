@@ -18,7 +18,7 @@ import threading
 import time
 
 # Версия приложения
-APP_VERSION = "1.0.28"
+APP_VERSION = "1.0.29"
 
 # API сервер на TimeWeb
 AUTH_API_URL = "http://5.129.203.43:8085/api"
