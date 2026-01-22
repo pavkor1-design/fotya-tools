@@ -104,8 +104,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'PhotoTools',
         'CFBundleDisplayName': 'PhotoTools',
-        'CFBundleVersion': '1.0.18',
-        'CFBundleShortVersionString': '1.0.18',
+        'CFBundleVersion': '1.0.20',
+        'CFBundleShortVersionString': '1.0.20',
         'CFBundleIdentifier': 'com.phototools.app',
         'NSHighResolutionCapable': True,
         'NSRequiresAquaSystemAppearance': False,  # Support dark mode

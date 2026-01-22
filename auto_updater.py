@@ -210,7 +210,70 @@ def upload_update(zip_path: str, version: str, description: str = "", published_
         return {"success": False, "message": f"Ошибка: {str(e)}"}
 
 
-def create_github_release(version: str, description: str = "", base_dir: str = None) -> dict:
+def build_dmg(version: str, base_dir: str = None) -> str:
+    """
+    Собирает приложение и создаёт DMG файл
+    Возвращает путь к DMG или None при ошибке
+    """
+    if base_dir is None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    spec_file = os.path.join(base_dir, "PhotoTools.spec")
+    if not os.path.exists(spec_file):
+        print("⚠️ PhotoTools.spec не найден, пропускаем сборку DMG")
+        return None
+    
+    print(f"\n🔨 Сборка приложения v{version}...")
+    
+    # Собираем через PyInstaller
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "PyInstaller", "PhotoTools.spec", "--clean", "--noconfirm"],
+            cwd=base_dir, capture_output=True, text=True, timeout=300
+        )
+        if result.returncode != 0:
+            print(f"❌ Ошибка сборки PyInstaller: {result.stderr[-500:] if result.stderr else 'unknown'}")
+            return None
+        print("✅ PyInstaller сборка завершена")
+    except subprocess.TimeoutExpired:
+        print("❌ Таймаут сборки PyInstaller")
+        return None
+    except Exception as e:
+        print(f"❌ Ошибка PyInstaller: {e}")
+        return None
+    
+    # Проверяем что app создан
+    app_path = os.path.join(base_dir, "dist", "PhotoTools.app")
+    if not os.path.exists(app_path):
+        print("❌ PhotoTools.app не создан")
+        return None
+    
+    # Создаём DMG
+    dmg_name = f"PhotoTools-{version}.dmg"
+    dmg_path = os.path.join(base_dir, dmg_name)
+    
+    # Удаляем старый DMG если есть
+    if os.path.exists(dmg_path):
+        os.remove(dmg_path)
+    
+    print(f"📦 Создание {dmg_name}...")
+    try:
+        result = subprocess.run(
+            ["hdiutil", "create", "-volname", "PhotoTools", "-srcfolder", app_path, 
+             "-ov", "-format", "UDZO", dmg_path],
+            cwd=base_dir, capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            print(f"❌ Ошибка hdiutil: {result.stderr}")
+            return None
+        print(f"✅ DMG создан: {dmg_name}")
+        return dmg_path
+    except Exception as e:
+        print(f"❌ Ошибка создания DMG: {e}")
+        return None
+
+
+def create_github_release(version: str, description: str = "", base_dir: str = None, build_if_missing: bool = True) -> dict:
     """
     Создаёт GitHub Release с DMG файлом (если доступен gh CLI)
     """
@@ -243,7 +306,12 @@ def create_github_release(version: str, description: str = "", base_dir: str = N
                 dmg_file = os.path.join(base_dir, f)
                 break
         
-        # Если DMG с этой версией нет, ищем любой DMG
+        # Если DMG с этой версией нет, пробуем собрать
+        if not dmg_file and build_if_missing:
+            print("📦 DMG не найден, пробуем собрать...")
+            dmg_file = build_dmg(version, base_dir)
+        
+        # Если всё равно нет - ищем любой DMG
         if not dmg_file:
             for f in os.listdir(base_dir):
                 if f.endswith('.dmg'):
