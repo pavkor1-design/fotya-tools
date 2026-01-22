@@ -425,6 +425,67 @@ def download_and_install_update(download_url: str, version: str) -> tuple:
         return False, f"Ошибка установки: {str(e)}"
 
 
+def download_and_install_update_with_progress(download_url: str, version: str, progress_callback=None) -> tuple:
+    """
+    Скачивает и устанавливает обновление с отображением прогресса
+    progress_callback(progress: float 0-1, status: str)
+    """
+    try:
+        if progress_callback:
+            progress_callback(0, "Подключение к серверу...")
+        
+        resp = requests.get(download_url, stream=True, timeout=120)
+        if resp.status_code != 200:
+            return False, f"Ошибка скачивания: {resp.status_code}"
+        
+        total_size = int(resp.headers.get('content-length', 0))
+        temp_zip = os.path.join(tempfile.gettempdir(), f"fotya_update_{version}.zip")
+        downloaded = 0
+        
+        with open(temp_zip, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0 and progress_callback:
+                    progress = downloaded / total_size * 0.7  # 70% на скачивание
+                    size_kb = downloaded / 1024
+                    total_kb = total_size / 1024
+                    progress_callback(progress, f"Скачивание: {size_kb:.0f} / {total_kb:.0f} KB")
+        
+        if progress_callback:
+            progress_callback(0.75, "Создание резервной копии...")
+        
+        # Распаковываем
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        backup_dir = os.path.join(tempfile.gettempdir(), f"fotya_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        
+        with zipfile.ZipFile(temp_zip, 'r') as zipf:
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            files = zipf.namelist()
+            for i, name in enumerate(files):
+                target_path = os.path.join(app_dir, name)
+                if os.path.exists(target_path):
+                    backup_path = os.path.join(backup_dir, name)
+                    os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+                    shutil.copy2(target_path, backup_path)
+            
+            if progress_callback:
+                progress_callback(0.85, "Установка файлов...")
+            
+            zipf.extractall(app_dir)
+        
+        os.remove(temp_zip)
+        
+        if progress_callback:
+            progress_callback(1.0, "✅ Обновление установлено!")
+        
+        return True, "Обновление установлено"
+        
+    except Exception as e:
+        return False, f"Ошибка: {str(e)}"
+
+
 def list_updates() -> list:
     """Получает список всех опубликованных обновлений"""
     try:

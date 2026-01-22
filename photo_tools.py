@@ -1108,21 +1108,56 @@ class PhotoToolsApp(ctk.CTk):
             messagebox.showerror("Ошибка", "Ссылка на обновление не найдена")
             return
         
-        # Показываем статус в заголовке окна
-        self.title(f"PhotoTools - Загрузка обновления v{version}...")
+        # Создаём окно прогресса
+        self.update_dialog = ctk.CTkToplevel(self)
+        self.update_dialog.title("Обновление")
+        self.update_dialog.geometry("400x180")
+        self.update_dialog.configure(fg_color=COLORS["bg_dark"])
+        self.update_dialog.transient(self)
+        self.update_dialog.grab_set()
+        self.update_dialog.resizable(False, False)
+        
+        ctk.CTkLabel(self.update_dialog, text=f"📥 Загрузка обновления v{version}",
+                    font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(25, 15))
+        
+        self.update_progress = ctk.CTkProgressBar(self.update_dialog, width=350, height=20)
+        self.update_progress.pack(pady=10)
+        self.update_progress.set(0)
+        
+        self.update_status = ctk.CTkLabel(self.update_dialog, text="Подключение...",
+                                          font=ctk.CTkFont(size=12),
+                                          text_color=COLORS["text_secondary"])
+        self.update_status.pack(pady=10)
         
         def do_update():
             try:
-                from auto_updater import download_and_install_update
-                success, msg = download_and_install_update(download_url, version)
+                from auto_updater import download_and_install_update_with_progress
+                success, msg = download_and_install_update_with_progress(
+                    download_url, version,
+                    progress_callback=lambda p, s: self.after(0, lambda: self._update_progress(p, s))
+                )
                 self.after(0, lambda: self._finish_auto_update(success, msg))
             except Exception as e:
                 self.after(0, lambda: self._finish_auto_update(False, str(e)))
         
         threading.Thread(target=do_update, daemon=True).start()
     
+    def _update_progress(self, progress, status):
+        """Обновляет прогресс-бар"""
+        if hasattr(self, 'update_progress'):
+            self.update_progress.set(progress)
+        if hasattr(self, 'update_status'):
+            self.update_status.configure(text=status)
+    
     def _finish_auto_update(self, success, msg):
         """Завершает обновление и перезапускает приложение"""
+        # Закрываем диалог прогресса
+        if hasattr(self, 'update_dialog') and self.update_dialog:
+            try:
+                self.update_dialog.destroy()
+            except:
+                pass
+        
         if success:
             self.title("PhotoTools - Перезапуск...")
             self.update()
