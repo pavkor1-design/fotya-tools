@@ -818,20 +818,17 @@ def _download_dmg_with_progress(version: str, progress_callback=None) -> tuple:
         if progress_callback:
             progress_callback(0.92, "Установка в Applications...")
         
-        # Копируем приложение в Applications
+        # Копируем приложение в Applications с правами администратора
         source_app = "/Volumes/PhotoTools/PhotoTools.app"
         dest_app = "/Applications/PhotoTools.app"
         
-        # Удаляем старую версию если есть
-        if os.path.exists(dest_app):
-            try:
-                subprocess.run(["rm", "-rf", dest_app], capture_output=True)
-            except:
-                pass
+        # Используем AppleScript для запроса прав администратора
+        applescript = f'''
+        do shell script "rm -rf '{dest_app}' 2>/dev/null; cp -R '{source_app}' '{dest_app}'" with administrator privileges
+        '''
         
-        # Копируем новую версию
         copy_result = subprocess.run(
-            ["cp", "-R", source_app, dest_app],
+            ["osascript", "-e", applescript],
             capture_output=True, text=True
         )
         
