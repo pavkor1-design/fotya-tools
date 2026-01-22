@@ -273,11 +273,44 @@ def build_dmg(version: str, base_dir: str = None) -> str:
         return None
 
 
+def _get_repo_dir() -> str:
+    """Возвращает путь к git репозиторию PhotoTools"""
+    # Известные пути к репозиторию
+    known_paths = [
+        "/Users/andreykorushov/ai_bot/PhotoTools-Release",
+        os.path.expanduser("~/ai_bot/PhotoTools-Release"),
+        os.path.expanduser("~/PhotoTools-Release"),
+    ]
+    
+    for path in known_paths:
+        if os.path.exists(os.path.join(path, ".git")):
+            return path
+    
+    # Пробуем текущую директорию
+    current = os.path.dirname(os.path.abspath(__file__))
+    if os.path.exists(os.path.join(current, ".git")):
+        return current
+    
+    return None
+
+
+def _log_to_file(msg: str):
+    """Логирование в файл для отладки"""
+    log_path = os.path.expanduser("~/phototools_publish.log")
+    try:
+        with open(log_path, "a") as f:
+            f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
+    except:
+        pass
+
+
 def create_github_release(version: str, description: str = "", base_dir: str = None, build_if_missing: bool = True) -> dict:
     """
     Создаёт GitHub Release с DMG файлом (если доступен gh CLI)
     """
     try:
+        _log_to_file(f"=== create_github_release v{version} ===")
+        
         # Проверяем наличие gh CLI (с полными путями для macOS)
         gh_paths = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"]
         gh_cmd = None
@@ -292,15 +325,35 @@ def create_github_release(version: str, description: str = "", base_dir: str = N
                 continue
         
         if not gh_cmd:
+            _log_to_file("ERROR: gh CLI не найден")
             print("⚠️ gh CLI не найден, GitHub Release не создан")
             return {"success": False, "message": "gh CLI не установлен"}
         
-        # Определяем директорию проекта
+        _log_to_file(f"gh CLI: {gh_cmd}")
+        
+        # Определяем директорию git репозитория (важно для gh CLI!)
+        repo_dir = _get_repo_dir()
+        if not repo_dir:
+            _log_to_file("ERROR: Git репозиторий не найден")
+            print("⚠️ Git репозиторий не найден")
+            return {"success": False, "message": "Git репозиторий не найден"}
+        
+        _log_to_file(f"Repo dir: {repo_dir}")
+        
+        # Для поиска DMG используем repo_dir
         if base_dir is None:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+            base_dir = repo_dir
         
         # Ищем DMG файл
         dmg_file = None
+        _log_to_file(f"Searching DMG in: {base_dir}")
+        
+        try:
+            files = os.listdir(base_dir)
+            _log_to_file(f"Files: {[f for f in files if f.endswith('.dmg')]}")
+        except Exception as e:
+            _log_to_file(f"ERROR listdir: {e}")
+        
         for f in os.listdir(base_dir):
             if f.endswith('.dmg') and version in f:
                 dmg_file = os.path.join(base_dir, f)
@@ -308,8 +361,10 @@ def create_github_release(version: str, description: str = "", base_dir: str = N
         
         # Если DMG с этой версией нет, пробуем собрать
         if not dmg_file and build_if_missing:
+            _log_to_file("DMG не найден, собираем...")
             print("📦 DMG не найден, пробуем собрать...")
-            dmg_file = build_dmg(version, base_dir)
+            dmg_file = build_dmg(version, repo_dir)
+            _log_to_file(f"build_dmg result: {dmg_file}")
         
         # Если всё равно нет - ищем любой DMG
         if not dmg_file:
@@ -319,6 +374,7 @@ def create_github_release(version: str, description: str = "", base_dir: str = N
                     break
         
         if not dmg_file:
+            _log_to_file("WARNING: DMG не найден")
             print("⚠️ DMG файл не найден, GitHub Release создаётся без файла")
         
         # Формируем заметки релиза
@@ -337,30 +393,34 @@ xattr -cr /Applications/PhotoTools.app
 ```
 """
         
-        # Проверяем существует ли релиз
+        _log_to_file(f"DMG file: {dmg_file}")
+        
+        # Проверяем существует ли релиз (используем repo_dir для gh CLI!)
         check_result = subprocess.run(
             [gh_cmd, "release", "view", f"v{version}"],
-            capture_output=True, text=True, cwd=base_dir
+            capture_output=True, text=True, cwd=repo_dir
         )
         
         if check_result.returncode == 0:
             # Релиз существует - удаляем его
+            _log_to_file(f"Удаляем старый релиз v{version}")
             print(f"🗑️ Удаляем старый релиз v{version}...")
             subprocess.run(
                 [gh_cmd, "release", "delete", f"v{version}", "-y"],
-                capture_output=True, text=True, cwd=base_dir
+                capture_output=True, text=True, cwd=repo_dir
             )
             # Удаляем тег
             subprocess.run(
                 ["git", "tag", "-d", f"v{version}"],
-                capture_output=True, text=True, cwd=base_dir
+                capture_output=True, text=True, cwd=repo_dir
             )
             subprocess.run(
                 ["git", "push", "origin", f":refs/tags/v{version}"],
-                capture_output=True, text=True, cwd=base_dir
+                capture_output=True, text=True, cwd=repo_dir
             )
         
         # Создаём новый релиз
+        _log_to_file(f"Создаём GitHub Release v{version}...")
         print(f"🐙 Создаём GitHub Release v{version}...")
         
         cmd = [
@@ -371,19 +431,29 @@ xattr -cr /Applications/PhotoTools.app
         
         if dmg_file and os.path.exists(dmg_file):
             cmd.append(dmg_file)
+            _log_to_file(f"С файлом: {dmg_file}")
             print(f"   📦 С файлом: {os.path.basename(dmg_file)}")
+        else:
+            _log_to_file("Без DMG файла")
         
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=base_dir)
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=repo_dir)
+        
+        _log_to_file(f"gh result: code={result.returncode}, stdout={result.stdout[:200] if result.stdout else ''}, stderr={result.stderr[:200] if result.stderr else ''}")
         
         if result.returncode == 0:
             url = result.stdout.strip()
+            _log_to_file(f"SUCCESS: {url}")
             print(f"✅ GitHub Release создан: {url}")
             return {"success": True, "url": url}
         else:
+            _log_to_file(f"ERROR: {result.stderr}")
             print(f"❌ Ошибка создания релиза: {result.stderr}")
             return {"success": False, "message": result.stderr}
             
     except Exception as e:
+        _log_to_file(f"EXCEPTION: {e}")
+        import traceback
+        _log_to_file(traceback.format_exc())
         print(f"⚠️ Ошибка GitHub Release: {e}")
         return {"success": False, "message": str(e)}
 
