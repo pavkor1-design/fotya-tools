@@ -552,9 +552,16 @@ def download_and_install_update(download_url: str, version: str) -> tuple:
     """
     Скачивает и устанавливает обновление
     Обрабатывает случай AppTranslocation (read-only filesystem)
+    Для скомпилированных приложений (.app) всегда скачивает DMG
     """
     try:
         print(f"\n📥 Скачивание обновления v{version}...")
+        
+        # Проверяем - это скомпилированное приложение (.app bundle)?
+        is_frozen = getattr(sys, 'frozen', False)
+        if is_frozen:
+            print("📦 Скомпилированное приложение - скачиваем DMG")
+            return _download_dmg_for_manual_install(version)
         
         # Проверяем AppTranslocation
         if is_app_translocated():
@@ -674,11 +681,18 @@ def download_and_install_update_with_progress(download_url: str, version: str, p
     """
     Скачивает и устанавливает обновление с отображением прогресса
     progress_callback(progress: float 0-1, status: str)
-    Обрабатывает случай AppTranslocation (read-only filesystem)
+    Для скомпилированных приложений (.app) всегда скачивает DMG
     """
     try:
         if progress_callback:
             progress_callback(0, "Проверка системы...")
+        
+        # Проверяем - это скомпилированное приложение (.app bundle)?
+        is_frozen = getattr(sys, 'frozen', False)
+        if is_frozen:
+            if progress_callback:
+                progress_callback(0.1, "Скачивание DMG...")
+            return _download_dmg_with_progress(version, progress_callback)
         
         # Проверяем AppTranslocation
         if is_app_translocated():
