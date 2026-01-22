@@ -215,9 +215,20 @@ def create_github_release(version: str, description: str = "", base_dir: str = N
     Создаёт GitHub Release с DMG файлом (если доступен gh CLI)
     """
     try:
-        # Проверяем наличие gh CLI
-        result = subprocess.run(["which", "gh"], capture_output=True, text=True)
-        if result.returncode != 0:
+        # Проверяем наличие gh CLI (с полными путями для macOS)
+        gh_paths = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"]
+        gh_cmd = None
+        
+        for path in gh_paths:
+            try:
+                result = subprocess.run([path, "--version"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    gh_cmd = path
+                    break
+            except:
+                continue
+        
+        if not gh_cmd:
             print("⚠️ gh CLI не найден, GitHub Release не создан")
             return {"success": False, "message": "gh CLI не установлен"}
         
@@ -260,7 +271,7 @@ xattr -cr /Applications/PhotoTools.app
         
         # Проверяем существует ли релиз
         check_result = subprocess.run(
-            ["gh", "release", "view", f"v{version}"],
+            [gh_cmd, "release", "view", f"v{version}"],
             capture_output=True, text=True, cwd=base_dir
         )
         
@@ -268,7 +279,7 @@ xattr -cr /Applications/PhotoTools.app
             # Релиз существует - удаляем его
             print(f"🗑️ Удаляем старый релиз v{version}...")
             subprocess.run(
-                ["gh", "release", "delete", f"v{version}", "-y"],
+                [gh_cmd, "release", "delete", f"v{version}", "-y"],
                 capture_output=True, text=True, cwd=base_dir
             )
             # Удаляем тег
@@ -285,7 +296,7 @@ xattr -cr /Applications/PhotoTools.app
         print(f"🐙 Создаём GitHub Release v{version}...")
         
         cmd = [
-            "gh", "release", "create", f"v{version}",
+            gh_cmd, "release", "create", f"v{version}",
             "--title", f"PhotoTools v{version}",
             "--notes", notes
         ]

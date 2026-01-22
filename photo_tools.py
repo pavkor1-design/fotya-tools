@@ -1067,13 +1067,16 @@ class PhotoToolsApp(ctk.CTk):
     
     def _check_updates_indicator(self, header, license_manager):
         """Проверяет обновления в фоне и показывает индикатор"""
+        from license_manager import APP_VERSION
+        
         def check():
             try:
                 has_update, version, download_url = license_manager.check_for_updates()
                 if has_update and version:
                     update_info = {
                         'version': version,
-                        'download_url': download_url
+                        'download_url': download_url,
+                        'current_version': APP_VERSION
                     }
                     self.after(0, lambda: self._show_update_indicator(header, update_info))
             except Exception as e:
@@ -1088,13 +1091,56 @@ class PhotoToolsApp(ctk.CTk):
             header, 
             text=f"🔔 Обновление v{update_info['version']}", 
             width=160, height=30,
-            command=lambda: self._show_update_dialog(update_info),
+            command=lambda: self._start_auto_update(update_info),
             fg_color=COLORS["warning"],
             hover_color=COLORS["danger"],
             corner_radius=GLASS_CORNER_RADIUS_SMALL,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold")
         )
         update_btn.pack(side="right", padx=5, pady=12)
+    
+    def _start_auto_update(self, update_info):
+        """Запускает автоматическое обновление при нажатии на кнопку"""
+        download_url = update_info.get('download_url', '')
+        version = update_info.get('version', '')
+        
+        if not download_url:
+            messagebox.showerror("Ошибка", "Ссылка на обновление не найдена")
+            return
+        
+        # Показываем статус в заголовке окна
+        self.title(f"PhotoTools - Загрузка обновления v{version}...")
+        
+        def do_update():
+            try:
+                from auto_updater import download_and_install_update
+                success, msg = download_and_install_update(download_url, version)
+                self.after(0, lambda: self._finish_auto_update(success, msg))
+            except Exception as e:
+                self.after(0, lambda: self._finish_auto_update(False, str(e)))
+        
+        threading.Thread(target=do_update, daemon=True).start()
+    
+    def _finish_auto_update(self, success, msg):
+        """Завершает обновление и перезапускает приложение"""
+        if success:
+            self.title("PhotoTools - Перезапуск...")
+            self.update()
+            
+            # Перезапускаем приложение
+            def restart():
+                try:
+                    python = sys.executable
+                    script = os.path.abspath(sys.argv[0])
+                    self.destroy()
+                    os.execl(python, python, script)
+                except Exception as e:
+                    messagebox.showerror("Ошибка", f"Перезапустите вручную: {e}")
+            
+            self.after(500, restart)
+        else:
+            self.title("PhotoTools")
+            messagebox.showerror("Ошибка обновления", msg)
     
     def _show_update_dialog(self, update_info):
         """Показывает диалог с информацией об обновлении"""
