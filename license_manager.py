@@ -18,7 +18,7 @@ import threading
 import time
 
 # Версия приложения
-APP_VERSION = "1.0.34"
+APP_VERSION = "1.0.35"
 
 # API сервер на TimeWeb
 AUTH_API_URL = "http://5.129.203.43:8085/api"
@@ -380,14 +380,36 @@ class LicenseManager:
         return False, "Ошибка публикации"
     
     def check_for_updates(self) -> tuple[bool, str, str]:
-        """Проверяет наличие обновлений через API"""
+        """Проверяет наличие обновлений через GitHub Releases API"""
         try:
-            # Используем правильный API для проверки обновлений
-            result = self._api_request("GET", f"/updates/check/{APP_VERSION}")
-            if result and result.get("success") and result.get("has_update"):
-                return True, result.get("latest_version", ""), result.get("download_url", "")
+            # Проверяем GitHub Releases - там появляется DMG только после полной публикации
+            import requests
+            github_api = "https://api.github.com/repos/pavkor1-design/fotya-tools/releases/latest"
+            resp = requests.get(github_api, timeout=10)
+            
+            if resp.status_code == 200:
+                release = resp.json()
+                tag = release.get("tag_name", "")
+                # Убираем 'v' из тега если есть
+                latest_version = tag.lstrip("v") if tag else ""
+                
+                # Проверяем есть ли DMG файл в релизе
+                assets = release.get("assets", [])
+                dmg_url = ""
+                for asset in assets:
+                    if asset.get("name", "").endswith(".dmg"):
+                        dmg_url = asset.get("browser_download_url", "")
+                        break
+                
+                # Обновление доступно только если:
+                # 1. Версия на GitHub новее текущей
+                # 2. В релизе есть DMG файл
+                if latest_version and dmg_url and self._compare_versions(latest_version, APP_VERSION) > 0:
+                    logger.info(f"Update available: {APP_VERSION} -> {latest_version}")
+                    return True, latest_version, dmg_url
+                    
         except Exception as e:
-            logger.warning(f"Update check failed: {e}")
+            logger.warning(f"GitHub update check failed: {e}")
         
         return False, APP_VERSION, ""
     
