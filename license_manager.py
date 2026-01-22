@@ -8,11 +8,14 @@ import os
 import sys
 import json
 import hashlib
+import logging
 import requests
 import socket
 import platform
 import uuid
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 from typing import Optional, Dict, List
 import threading
 import time
