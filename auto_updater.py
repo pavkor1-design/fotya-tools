@@ -16,6 +16,7 @@ import json
 import zipfile
 import shutil
 import tempfile
+import subprocess
 import requests
 from datetime import datetime
 
@@ -209,6 +210,105 @@ def upload_update(zip_path: str, version: str, description: str = "", published_
         return {"success": False, "message": f"Ошибка: {str(e)}"}
 
 
+def create_github_release(version: str, description: str = "", base_dir: str = None) -> dict:
+    """
+    Создаёт GitHub Release с DMG файлом (если доступен gh CLI)
+    """
+    try:
+        # Проверяем наличие gh CLI
+        result = subprocess.run(["which", "gh"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("⚠️ gh CLI не найден, GitHub Release не создан")
+            return {"success": False, "message": "gh CLI не установлен"}
+        
+        # Определяем директорию проекта
+        if base_dir is None:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Ищем DMG файл
+        dmg_file = None
+        for f in os.listdir(base_dir):
+            if f.endswith('.dmg') and version in f:
+                dmg_file = os.path.join(base_dir, f)
+                break
+        
+        # Если DMG с этой версией нет, ищем любой DMG
+        if not dmg_file:
+            for f in os.listdir(base_dir):
+                if f.endswith('.dmg'):
+                    dmg_file = os.path.join(base_dir, f)
+                    break
+        
+        if not dmg_file:
+            print("⚠️ DMG файл не найден, GitHub Release создаётся без файла")
+        
+        # Формируем заметки релиза
+        notes = f"""## 📸 PhotoTools v{version}
+
+{description if description else "Обновление PhotoTools"}
+
+### Установка:
+1. Скачайте DMG файл
+2. Откройте и перетащите в Applications
+3. При первом запуске: ПКМ → Открыть
+
+### Если ошибка "повреждено":
+```bash
+xattr -cr /Applications/PhotoTools.app
+```
+"""
+        
+        # Проверяем существует ли релиз
+        check_result = subprocess.run(
+            ["gh", "release", "view", f"v{version}"],
+            capture_output=True, text=True, cwd=base_dir
+        )
+        
+        if check_result.returncode == 0:
+            # Релиз существует - удаляем его
+            print(f"🗑️ Удаляем старый релиз v{version}...")
+            subprocess.run(
+                ["gh", "release", "delete", f"v{version}", "-y"],
+                capture_output=True, text=True, cwd=base_dir
+            )
+            # Удаляем тег
+            subprocess.run(
+                ["git", "tag", "-d", f"v{version}"],
+                capture_output=True, text=True, cwd=base_dir
+            )
+            subprocess.run(
+                ["git", "push", "origin", f":refs/tags/v{version}"],
+                capture_output=True, text=True, cwd=base_dir
+            )
+        
+        # Создаём новый релиз
+        print(f"🐙 Создаём GitHub Release v{version}...")
+        
+        cmd = [
+            "gh", "release", "create", f"v{version}",
+            "--title", f"PhotoTools v{version}",
+            "--notes", notes
+        ]
+        
+        if dmg_file and os.path.exists(dmg_file):
+            cmd.append(dmg_file)
+            print(f"   📦 С файлом: {os.path.basename(dmg_file)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=base_dir)
+        
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            print(f"✅ GitHub Release создан: {url}")
+            return {"success": True, "url": url}
+        else:
+            print(f"❌ Ошибка создания релиза: {result.stderr}")
+            return {"success": False, "message": result.stderr}
+            
+    except Exception as e:
+        print(f"⚠️ Ошибка GitHub Release: {e}")
+        return {"success": False, "message": str(e)}
+
+
 def publish_update(new_version: str, description: str = "", base_dir: str = None) -> tuple:
     """
     Полный цикл публикации обновления:
@@ -236,11 +336,16 @@ def publish_update(new_version: str, description: str = "", base_dir: str = None
     except:
         pass
     
+    # 4. Создаём GitHub Release (если доступен gh CLI)
+    github_result = create_github_release(new_version, description, base_dir)
+    
     print("\n" + "=" * 50)
     print(f"🎉 ВЕРСИЯ {new_version} ОПУБЛИКОВАНА!")
     print("=" * 50)
     print(f"\n📥 URL для скачивания:")
     print(f"   {result.get('download_url', 'N/A')}")
+    if github_result.get("success"):
+        print(f"\n🐙 GitHub Release: {github_result.get('url', 'создан')}")
     print(f"\n👥 Пользователи получат уведомление при следующем запуске")
     
     return True, f"Версия {new_version} опубликована"
