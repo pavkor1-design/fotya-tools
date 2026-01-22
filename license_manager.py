@@ -18,7 +18,7 @@ import threading
 import time
 
 # Версия приложения
-APP_VERSION = "1.0.37"
+APP_VERSION = "1.0.38"
 
 # API сервер на TimeWeb
 AUTH_API_URL = "http://5.129.203.43:8085/api"
@@ -382,16 +382,18 @@ class LicenseManager:
     def check_for_updates(self) -> tuple[bool, str, str]:
         """Проверяет наличие обновлений через GitHub Releases API"""
         try:
-            # Проверяем GitHub Releases - там появляется DMG только после полной публикации
             import requests
+            logger.info(f"Проверка обновлений GitHub (текущая версия: {APP_VERSION})")
+            
             github_api = "https://api.github.com/repos/pavkor1-design/fotya-tools/releases/latest"
             resp = requests.get(github_api, timeout=10)
+            logger.info(f"GitHub API ответ: {resp.status_code}")
             
             if resp.status_code == 200:
                 release = resp.json()
                 tag = release.get("tag_name", "")
-                # Убираем 'v' из тега если есть
                 latest_version = tag.lstrip("v") if tag else ""
+                logger.info(f"Последняя версия на GitHub: {latest_version}")
                 
                 # Проверяем есть ли DMG файл в релизе
                 assets = release.get("assets", [])
@@ -401,12 +403,19 @@ class LicenseManager:
                         dmg_url = asset.get("browser_download_url", "")
                         break
                 
-                # Обновление доступно только если:
-                # 1. Версия на GitHub новее текущей
-                # 2. В релизе есть DMG файл
-                if latest_version and dmg_url and self._compare_versions(latest_version, APP_VERSION) > 0:
-                    logger.info(f"Update available: {APP_VERSION} -> {latest_version}")
+                logger.info(f"DMG найден: {bool(dmg_url)}")
+                
+                # Сравниваем версии
+                cmp_result = self._compare_versions(latest_version, APP_VERSION)
+                logger.info(f"Сравнение версий {latest_version} vs {APP_VERSION}: {cmp_result}")
+                
+                if latest_version and dmg_url and cmp_result > 0:
+                    logger.info(f"✅ Обновление доступно: {APP_VERSION} -> {latest_version}")
                     return True, latest_version, dmg_url
+                else:
+                    logger.info(f"Обновление не требуется")
+            else:
+                logger.warning(f"GitHub API ошибка: {resp.status_code}")
                     
         except Exception as e:
             logger.warning(f"GitHub update check failed: {e}")
