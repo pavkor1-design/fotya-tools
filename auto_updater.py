@@ -773,7 +773,7 @@ def download_and_install_update_with_progress(download_url: str, version: str, p
 
 def _download_dmg_with_progress(version: str, progress_callback=None) -> tuple:
     """
-    Скачивает DMG с прогрессом для ручной установки
+    Скачивает DMG и автоматически устанавливает в Applications
     """
     try:
         dmg_url = f"https://github.com/pavkor1-design/fotya-tools/releases/download/v{version}/PhotoTools-{version}.dmg"
@@ -796,21 +796,70 @@ def _download_dmg_with_progress(version: str, progress_callback=None) -> tuple:
                 f.write(chunk)
                 downloaded += len(chunk)
                 if total_size > 0 and progress_callback:
-                    progress = 0.15 + (downloaded / total_size * 0.8)
+                    progress = 0.15 + (downloaded / total_size * 0.7)
                     size_mb = downloaded / 1024 / 1024
                     total_mb = total_size / 1024 / 1024
                     progress_callback(progress, f"Скачивание DMG: {size_mb:.1f} / {total_mb:.1f} MB")
         
         if progress_callback:
-            progress_callback(0.98, "Открытие папки Downloads...")
+            progress_callback(0.88, "Монтирование DMG...")
         
-        # Открываем DMG автоматически
-        subprocess.run(["open", dmg_path], capture_output=True)
+        # Монтируем DMG
+        mount_result = subprocess.run(
+            ["hdiutil", "attach", dmg_path, "-nobrowse", "-quiet"],
+            capture_output=True, text=True
+        )
+        
+        if mount_result.returncode != 0:
+            # Если не удалось смонтировать - открываем вручную
+            subprocess.run(["open", dmg_path], capture_output=True)
+            return True, f"DMG скачан и открыт.\n\n1. Перетащите PhotoTools в Applications\n2. Закройте это приложение\n3. Запустите новую версию"
         
         if progress_callback:
-            progress_callback(1.0, "✅ DMG скачан и открыт!")
+            progress_callback(0.92, "Установка в Applications...")
         
-        return True, f"DMG скачан и открыт.\n\n1. Перетащите PhotoTools в Applications\n2. Закройте это приложение\n3. Запустите новую версию из Applications"
+        # Копируем приложение в Applications
+        source_app = "/Volumes/PhotoTools/PhotoTools.app"
+        dest_app = "/Applications/PhotoTools.app"
+        
+        # Удаляем старую версию если есть
+        if os.path.exists(dest_app):
+            try:
+                subprocess.run(["rm", "-rf", dest_app], capture_output=True)
+            except:
+                pass
+        
+        # Копируем новую версию
+        copy_result = subprocess.run(
+            ["cp", "-R", source_app, dest_app],
+            capture_output=True, text=True
+        )
+        
+        if progress_callback:
+            progress_callback(0.96, "Снятие карантина...")
+        
+        # Снимаем карантин
+        subprocess.run(["xattr", "-cr", dest_app], capture_output=True)
+        
+        if progress_callback:
+            progress_callback(0.98, "Размонтирование DMG...")
+        
+        # Размонтируем DMG
+        subprocess.run(["hdiutil", "detach", "/Volumes/PhotoTools", "-quiet"], capture_output=True)
+        
+        # Удаляем скачанный DMG
+        try:
+            os.remove(dmg_path)
+        except:
+            pass
+        
+        if progress_callback:
+            progress_callback(1.0, "✅ Установлено!")
+        
+        if copy_result.returncode == 0:
+            return True, f"✅ Версия {version} установлена в Applications!\n\nЗакройте это приложение и запустите PhotoTools из Applications."
+        else:
+            return True, f"DMG скачан.\n\n1. Перетащите PhotoTools в Applications\n2. Закройте это приложение\n3. Запустите новую версию"
         
     except Exception as e:
         return False, f"Ошибка: {str(e)}\n\nСкачайте вручную:\nhttps://github.com/pavkor1-design/fotya-tools/releases"
