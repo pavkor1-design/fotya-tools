@@ -277,7 +277,24 @@ def build_dmg(version: str, base_dir: str = None) -> str:
     if not os.path.exists(app_path):
         print("❌ PhotoTools.app не создан")
         return None
-    
+
+    # Очищаем карантинные атрибуты и провенанс
+    print("🧹 Очистка extended attributes...")
+    try:
+        subprocess.run(["xattr", "-cr", app_path], check=True, capture_output=True)
+        print("✅ Атрибуты очищены")
+    except Exception as e:
+        print(f"⚠️ Не удалось очистить атрибуты: {e}")
+
+    # Подписываем приложение ad-hoc подписью
+    print("✍️ Подпись приложения...")
+    try:
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app_path],
+                      check=True, capture_output=True)
+        print("✅ Приложение подписано")
+    except Exception as e:
+        print(f"⚠️ Не удалось подписать приложение: {e}")
+
     # Создаём DMG
     dmg_name = f"PhotoTools-{version}.dmg"
     dmg_path = os.path.join(base_dir, dmg_name)
