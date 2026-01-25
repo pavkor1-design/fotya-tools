@@ -92,14 +92,19 @@ try:
 except ImportError:
     DARKTABLE_ASHIFT_AVAILABLE = False
 
-# Логирование
+# Логирование в файл и консоль
 import logging
+log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'phototools_debug.log')
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(log_file_path, mode='a', encoding='utf-8')
+    ]
 )
 logger = logging.getLogger('PhotoTools')
+logger.info(f"=== PhotoTools started, log file: {log_file_path} ===")
 # Отключаем DEBUG для PIL
 logging.getLogger('PIL').setLevel(logging.WARNING)
 
@@ -810,7 +815,7 @@ class PhotoToolsApp(ctk.CTk):
                                           text_color=COLORS["text_secondary"])
         self.version_label.pack(side="right", padx=10, pady=5)
         
-        self.status_bar = ctk.CTkLabel(status_frame, text="TEST", 
+        self.status_bar = ctk.CTkLabel(status_frame, text="Фотя 2026 все права защищены", 
                                        font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                                        text_color=COLORS["text_secondary"])
         self.status_bar.pack(pady=5)
@@ -2100,6 +2105,110 @@ class PhotoToolsApp(ctk.CTk):
         self.refresh_storyboard()
         self.storyboard_status.configure(text=f"↩️ Отмена • {len(self.storyboard_images)} фото • Осталось {len(self.undo_stack)} шагов")
     
+    def _get_storyboard_cache_dir(self):
+        """Возвращает путь к папке кэша раскадровки"""
+        import tempfile
+        if not hasattr(self, '_storyboard_cache_dir'):
+            self._storyboard_cache_dir = os.path.join(tempfile.gettempdir(), 'phototools_storyboard_cache')
+            os.makedirs(self._storyboard_cache_dir, exist_ok=True)
+        return self._storyboard_cache_dir
+    
+    def _cache_fullsize_for_export(self, original_path, img):
+        """Кэширует полноразмерную копию изображения для экспорта (обход TCC)"""
+        import hashlib
+        
+        # Инициализируем маппинг если нет
+        if not hasattr(self, '_fullsize_cache_map'):
+            self._fullsize_cache_map = {}
+        
+        # Если уже закэшировано в этой сессии - пропускаем
+        if original_path in self._fullsize_cache_map:
+            return
+        
+        try:
+            cache_dir = self._get_storyboard_cache_dir()
+            
+            # Генерируем имя файла с учётом времени модификации и размера
+            try:
+                file_stat = os.stat(original_path)
+                hash_input = f"{original_path}_{file_stat.st_mtime}_{file_stat.st_size}"
+            except:
+                hash_input = original_path
+            
+            file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
+            ext = os.path.splitext(original_path)[1].lower()
+            if not ext:
+                ext = '.jpg'
+            cached_filename = f"full_{file_hash}{ext}"
+            cached_path = os.path.join(cache_dir, cached_filename)
+            
+            # ВСЕГДА перезаписываем кэш для актуальности данных
+            if ext in ['.jpg', '.jpeg']:
+                img.save(cached_path, 'JPEG', quality=95)
+            elif ext == '.png':
+                img.save(cached_path, 'PNG')
+            elif ext == '.webp':
+                img.save(cached_path, 'WEBP', quality=95)
+            else:
+                img.save(cached_path)
+            logger.info(f"Кэширована полноразмерная копия: {original_path} -> {cached_path}")
+            
+            # Запоминаем маппинг
+            self._fullsize_cache_map[original_path] = cached_path
+            
+        except Exception as e:
+            logger.debug(f"Не удалось кэшировать полноразмерную копию {original_path}: {e}")
+    
+    def _cache_image_for_export(self, original_path):
+        """Копирует изображение во временную папку для обхода ограничений macOS.
+        Возвращает путь к кэшированному файлу или None при ошибке."""
+        import hashlib
+        
+        cache_dir = self._get_storyboard_cache_dir()
+        
+        try:
+            # Генерируем уникальное имя на основе пути и времени модификации
+            file_stat = os.stat(original_path)
+            hash_input = f"{original_path}_{file_stat.st_mtime}_{file_stat.st_size}"
+            file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
+            
+            ext = os.path.splitext(original_path)[1].lower()
+            cached_filename = f"{file_hash}{ext}"
+            cached_path = os.path.join(cache_dir, cached_filename)
+            
+            # Если уже есть в кэше - возвращаем
+            if os.path.exists(cached_path):
+                logger.debug(f"Используем кэш: {cached_path}")
+                return cached_path
+            
+            # Читаем и сохраняем через PIL (обходит ограничения macOS)
+            img = Image.open(original_path)
+            
+            # Применяем EXIF-ориентацию
+            try:
+                from PIL import ImageOps
+                img = ImageOps.exif_transpose(img)
+            except:
+                pass
+            
+            # Сохраняем с высоким качеством
+            if ext in ['.jpg', '.jpeg']:
+                img.save(cached_path, 'JPEG', quality=95)
+            elif ext == '.png':
+                img.save(cached_path, 'PNG')
+            elif ext == '.webp':
+                img.save(cached_path, 'WEBP', quality=95)
+            else:
+                img.save(cached_path)
+            
+            logger.info(f"Кэшировано: {original_path} -> {cached_path}")
+            return cached_path
+            
+        except Exception as e:
+            logger.error(f"Ошибка кэширования {original_path}: {e}")
+            # Если не удалось кэшировать - возвращаем оригинальный путь
+            return original_path
+    
     def get_cached_thumbnail(self, path, target_size):
         """Получает кэшированное превью или создаёт новое (оптимизировано)"""
         # Округляем размер до ближайших 20px для лучшего кэширования
@@ -2115,6 +2224,16 @@ class PhotoToolsApp(ctk.CTk):
         if path not in self.base_thumbnail_cache:
             try:
                 img = Image.open(path)
+                # Применяем EXIF-ориентацию (исправляет поворот фото с телефона)
+                try:
+                    from PIL import ImageOps
+                    img = ImageOps.exif_transpose(img)
+                except:
+                    pass
+                
+                # ВАЖНО: Кэшируем полноразмерную копию для экспорта (обход TCC)
+                self._cache_fullsize_for_export(path, img)
+                
                 # Базовое превью 600px для большого зума
                 img.thumbnail((600, 600), Image.Resampling.BILINEAR)
                 self.base_thumbnail_cache[path] = img
@@ -2165,12 +2284,15 @@ class PhotoToolsApp(ctk.CTk):
             start_idx = len(self.storyboard_images)
             
             for i, path in enumerate(files):
-                idx = start_idx + i
-                col = idx % cols
-                row = idx // cols
-                x = padding + col * thumb_size
-                y = padding + row * thumb_size
-                self.storyboard_images.append({"path": path, "x": x, "y": y, "scale": 1.0})
+                # Копируем файл во временную папку для обхода ограничений macOS
+                cached_path = self._cache_image_for_export(path)
+                if cached_path:
+                    idx = start_idx + i
+                    col = idx % cols
+                    row = idx // cols
+                    x = padding + col * thumb_size
+                    y = padding + row * thumb_size
+                    self.storyboard_images.append({"path": cached_path, "original_path": path, "x": x, "y": y, "scale": 1.0})
             self.refresh_storyboard()
     
     def load_storyboard_folder(self):
@@ -2196,19 +2318,26 @@ class PhotoToolsApp(ctk.CTk):
             self.storyboard_status.configure(text=f"⏳ Загрузка 0/{total}...")
             self.update_idletasks()
             
+            added = 0
             for i, f in enumerate(files):
-                idx = start_idx + i
-                col = idx % cols
-                row = idx // cols
-                x = padding + col * thumb_size
-                y = padding + row * thumb_size
-                self.storyboard_images.append({"path": os.path.join(folder, f), "x": x, "y": y, "scale": 1.0})
+                original_path = os.path.join(folder, f)
+                # Копируем файл во временную папку для обхода ограничений macOS
+                cached_path = self._cache_image_for_export(original_path)
+                if cached_path:
+                    idx = start_idx + added
+                    col = idx % cols
+                    row = idx // cols
+                    x = padding + col * thumb_size
+                    y = padding + row * thumb_size
+                    self.storyboard_images.append({"path": cached_path, "original_path": original_path, "x": x, "y": y, "scale": 1.0})
+                    added += 1
                 
                 # Обновляем прогресс каждые 10 файлов
                 if (i + 1) % 10 == 0:
                     self.storyboard_status.configure(text=f"⏳ Загрузка {i+1}/{total}...")
                     self.update_idletasks()
             
+            self.storyboard_status.configure(text=f"✅ Загружено {added} фото")
             self.refresh_storyboard()
     
     def clear_storyboard(self):
@@ -2991,6 +3120,12 @@ class PhotoToolsApp(ctk.CTk):
         # Загружаем изображение в большом размере
         try:
             img = Image.open(img_path)
+            # Применяем EXIF-ориентацию (исправляет поворот фото с телефона)
+            try:
+                from PIL import ImageOps
+                img = ImageOps.exif_transpose(img)
+            except:
+                pass
             orig_w, orig_h = img.size
             
             # Масштабируем чтобы влезло в экран с отступами
@@ -3096,7 +3231,6 @@ class PhotoToolsApp(ctk.CTk):
             dy = -30
         
         if dy != 0:
-            # Быстрое перемещение без перерисовки
             self.storyboard_canvas.move("all", 0, dy)
             for img in self.storyboard_images:
                 img["y"] += dy / self.zoom_scale
@@ -3334,6 +3468,72 @@ end tell
             logger.error(f"Paste error: {e}")
             self.storyboard_status.configure(text="❌ Ошибка вставки")
     
+    def _request_access_to_inaccessible_files(self):
+        """Проверяет недоступные файлы и предлагает пользователю выбрать папку для доступа"""
+        # Находим недоступные файлы
+        inaccessible_folders = set()
+        for item in self.storyboard_images:
+            img_path = item.get("path", "")
+            if img_path and os.path.exists(img_path):
+                try:
+                    with open(img_path, 'rb') as f:
+                        f.read(1)  # Пробуем прочитать
+                except PermissionError:
+                    folder = os.path.dirname(img_path)
+                    inaccessible_folders.add(folder)
+        
+        if not inaccessible_folders:
+            return
+        
+        # Предлагаем пользователю выбрать папку для получения доступа
+        folders_list = "\n".join(list(inaccessible_folders)[:3])
+        if len(inaccessible_folders) > 3:
+            folders_list += f"\n...и ещё {len(inaccessible_folders) - 3}"
+        
+        result = messagebox.askyesno(
+            "Требуется доступ к файлам",
+            f"Некоторые файлы недоступны из-за ограничений macOS:\n\n{folders_list}\n\n"
+            f"Хотите выбрать эти папки, чтобы дать приложению доступ?\n"
+            f"(После выбора папки файлы станут доступны для экспорта)"
+        )
+        
+        if result:
+            for folder in inaccessible_folders:
+                # Открываем filedialog для каждой недоступной папки
+                selected = filedialog.askdirectory(
+                    title=f"Выберите папку для доступа: {os.path.basename(folder)}",
+                    initialdir=folder
+                )
+                if selected:
+                    logger.info(f"Получен доступ к папке: {selected}")
+                    # Пробуем закэшировать файлы из этой папки
+                    self._cache_files_from_folder(selected)
+    
+    def _cache_files_from_folder(self, folder):
+        """Кэширует файлы из папки после получения доступа"""
+        # Также пробуем родительскую папку (на случай если выбрали подпапку)
+        parent_folder = os.path.dirname(folder)
+        
+        for item in self.storyboard_images:
+            img_path = item.get("path", "")
+            if not img_path:
+                continue
+            
+            # Проверяем, относится ли файл к выбранной папке или её родителю
+            img_folder = os.path.dirname(img_path)
+            if img_folder == folder or img_folder == parent_folder or img_path.startswith(folder) or img_path.startswith(parent_folder):
+                try:
+                    img = Image.open(img_path)
+                    try:
+                        from PIL import ImageOps
+                        img = ImageOps.exif_transpose(img)
+                    except:
+                        pass
+                    self._cache_fullsize_for_export(img_path, img)
+                    logger.info(f"Закэширован после получения доступа: {img_path}")
+                except Exception as e:
+                    logger.debug(f"Не удалось закэшировать {img_path}: {e}")
+    
     def save_storyboard(self):
         """Cохраняет файлы в папку 'Раскадровка' в рабочей директории"""
         # Сначала сохраняем состояние программы (автосейв)
@@ -3341,27 +3541,133 @@ end tell
         
         if not self.storyboard_images:
             self.storyboard_status.configure(text="✅ Состояние сохранено")
+            messagebox.showinfo("Раскадровка", "Нет изображений для сохранения.\nСостояние программы сохранено.")
             return
+        
+        # Проверяем недоступные файлы и пытаемся получить доступ
+        self._request_access_to_inaccessible_files()
         
         # Создаём папку "Раскадровка" в рабочей директории
         storyboard_folder = os.path.join(self.output_folder, "Раскадровка")
         os.makedirs(storyboard_folder, exist_ok=True)
         
+        # Логируем количество изображений
+        logger.info(f"Экспорт раскадровки: {len(self.storyboard_images)} изображений")
+        
         # Сортируем по позиции: сверху вниз, слева направо (по строкам)
         row_height = 120  # Примерная высота строки
         sorted_images = sorted(self.storyboard_images, 
-                              key=lambda item: (item["y"] // row_height, item["x"]))
+                              key=lambda item: (item.get("y", 0) // row_height, item.get("x", 0)))
         
-        # Сохраняем файлы
+        # Сохраняем файлы с обработкой ошибок
+        # Используем base_thumbnail_cache если файл недоступен напрямую
+        saved_count = 0
+        errors = []
+        
+        # Инициализируем маппинг кэша если нет
+        if not hasattr(self, '_fullsize_cache_map'):
+            self._fullsize_cache_map = {}
+        
         for idx, item_data in enumerate(sorted_images):
-            img_path = item_data["path"]
-            ext = os.path.splitext(img_path)[1]
-            new_name = f"{idx+1:03d}{ext}"
-            shutil.copy(img_path, os.path.join(storyboard_folder, new_name))
+            img_path = item_data.get("path", "")
+            original_path = item_data.get("original_path", img_path)
+            
+            if not img_path:
+                errors.append(f"Пустой путь к файлу")
+                continue
+            
+            try:
+                ext = os.path.splitext(img_path)[1].lower()
+                if not ext:
+                    ext = '.jpg'
+                new_name = f"{idx+1:03d}{ext}"
+                dest_path = os.path.join(storyboard_folder, new_name)
+                
+                saved = False
+                
+                # Способ 0: Читаем файл напрямую через PIL (гарантирует актуальность)
+                for try_path in [img_path, original_path]:
+                    if try_path and os.path.exists(try_path):
+                        try:
+                            img = Image.open(try_path)
+                            try:
+                                from PIL import ImageOps
+                                img = ImageOps.exif_transpose(img)
+                            except:
+                                pass
+                            
+                            if ext in ['.jpg', '.jpeg']:
+                                img.save(dest_path, 'JPEG', quality=95)
+                            elif ext == '.png':
+                                img.save(dest_path, 'PNG')
+                            elif ext == '.webp':
+                                img.save(dest_path, 'WEBP', quality=95)
+                            else:
+                                img.save(dest_path)
+                            
+                            saved = True
+                            logger.debug(f"Экспорт (PIL direct): {try_path} -> {new_name}")
+                            break
+                        except Exception as e:
+                            logger.debug(f"PIL не смог открыть {try_path}: {e}")
+                            continue
+                
+                # Способ 1: Используем fullsize кэш (для недоступных файлов)
+                if not saved:
+                    cached_fullsize = self._fullsize_cache_map.get(img_path) or self._fullsize_cache_map.get(original_path)
+                    if cached_fullsize and os.path.exists(cached_fullsize):
+                        try:
+                            shutil.copy(cached_fullsize, dest_path)
+                            saved = True
+                            logger.debug(f"Экспорт (fullsize cache): {cached_fullsize} -> {new_name}")
+                        except Exception as e:
+                            logger.debug(f"Ошибка копирования из кэша: {e}")
+                
+                # Способ 2: Используем кэш превью (600px) как fallback
+                if not saved:
+                    logger.debug(f"Проверяем кэш превью для {img_path}, в кэше: {img_path in self.base_thumbnail_cache}")
+                    if img_path in self.base_thumbnail_cache:
+                        try:
+                            cached_img = self.base_thumbnail_cache[img_path]
+                            if ext in ['.jpg', '.jpeg']:
+                                cached_img.save(dest_path, 'JPEG', quality=95)
+                            else:
+                                cached_img.save(dest_path, 'PNG')
+                            saved = True
+                            logger.warning(f"Экспорт (кэш превью 600px): {img_path} -> {new_name}")
+                        except Exception as cache_err:
+                            logger.debug(f"Кэш превью не сработал: {cache_err}")
+                    else:
+                        logger.debug(f"Файл НЕ в кэше превью: {img_path}")
+                
+                if saved:
+                    saved_count += 1
+                else:
+                    errors.append(f"Нет доступа: {os.path.basename(img_path)}")
+                    logger.error(f"Экспорт: нет доступа к файлу - {img_path}")
+                
+            except Exception as e:
+                errors.append(f"{os.path.basename(img_path)}: {e}")
+                logger.error(f"Экспорт ошибка: {img_path} - {e}")
         
-        self.storyboard_status.configure(text=f"✅ Сохранено {len(sorted_images)} файлов в 'Раскадровка'")
-        messagebox.showinfo("Готово", f"Файлы сохранены в:\n{storyboard_folder}\n\nПорядок: слева→направо, сверху→вниз")
-        os.system(f'open "{storyboard_folder}"')
+        # Формируем сообщение
+        self.storyboard_status.configure(text=f"✅ Сохранено {saved_count} из {len(sorted_images)} файлов")
+        
+        if errors:
+            error_msg = f"Сохранено {saved_count} из {len(sorted_images)} файлов.\n\nОшибки:\n" + "\n".join(errors[:5])
+            if len(errors) > 5:
+                error_msg += f"\n...и ещё {len(errors) - 5} ошибок"
+            messagebox.showwarning("Экспорт с ошибками", error_msg)
+        else:
+            messagebox.showinfo("Готово", f"✅ Сохранено {saved_count} файлов в:\n{storyboard_folder}\n\nПорядок: слева→направо, сверху→вниз")
+        
+        # Открываем папку
+        if sys.platform == 'darwin':
+            subprocess.run(['open', storyboard_folder])
+        elif sys.platform == 'win32':
+            subprocess.run(['explorer', storyboard_folder])
+        else:
+            subprocess.run(['xdg-open', storyboard_folder])
     
     # ==================== POLARR (онлайн редактор с коррекцией перспективы) ====================
     def open_polarr(self):
@@ -7202,6 +7508,8 @@ end tell
         self.ai_log_text.insert("end", f"[{timestamp}] {msg}\n")
         self.ai_log_text.see("end")
         self.ai_log_text.configure(state="disabled")
+        # Также пишем в файл для отладки
+        logger.info(f"[AI] {msg}")
     
     def _show_output_placeholder(self):
         """Показывает центрированный текст-заглушку"""
@@ -7468,6 +7776,12 @@ end tell
         for i, path in enumerate(self.wide_images):
             try:
                 img = Image.open(path)
+                # Применяем EXIF-ориентацию
+                try:
+                    from PIL import ImageOps
+                    img = ImageOps.exif_transpose(img)
+                except:
+                    pass
                 img.thumbnail((45, 45), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
                 self.wide_preview_photos.append(photo)
@@ -7521,6 +7835,12 @@ end tell
                 # Показываем превью первого
                 try:
                     img = Image.open(files[0])
+                    # Применяем EXIF-ориентацию
+                    try:
+                        from PIL import ImageOps
+                        img = ImageOps.exif_transpose(img)
+                    except:
+                        pass
                     img.thumbnail((280, 160), Image.Resampling.LANCZOS)
                     self.ai_main_photo = ImageTk.PhotoImage(img)
                     self.ai_main_preview.configure(image=self.ai_main_photo, text="")
@@ -7538,6 +7858,12 @@ end tell
                 # Показываем большое превью
                 try:
                     img = Image.open(file)
+                    # Применяем EXIF-ориентацию
+                    try:
+                        from PIL import ImageOps
+                        img = ImageOps.exif_transpose(img)
+                    except:
+                        pass
                     img.thumbnail((280, 160), Image.Resampling.LANCZOS)
                     self.ai_main_photo = ImageTk.PhotoImage(img)
                     self.ai_main_preview.configure(image=self.ai_main_photo, text="")
@@ -7568,6 +7894,12 @@ end tell
                 ref_container.pack(side="left", padx=2)
                 
                 img = Image.open(path)
+                # Применяем EXIF-ориентацию
+                try:
+                    from PIL import ImageOps
+                    img = ImageOps.exif_transpose(img)
+                except:
+                    pass
                 img.thumbnail((60, 50), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
                 self.ai_ref_photos.append(photo)
@@ -7609,6 +7941,12 @@ end tell
             
             # Загружаем изображение
             img = Image.open(image_path)
+            # Применяем EXIF-ориентацию
+            try:
+                from PIL import ImageOps
+                img = ImageOps.exif_transpose(img)
+            except:
+                pass
             
             # Масштабируем под размер окна
             max_w, max_h = 780, 550
@@ -7669,6 +8007,12 @@ end tell
             if self.ai_main_image:
                 try:
                     img = Image.open(self.ai_main_image)
+                    # ВАЖНО: учитываем EXIF orientation для правильного определения размера
+                    try:
+                        from PIL import ImageOps
+                        img = ImageOps.exif_transpose(img)
+                    except:
+                        pass
                     orig_w, orig_h = img.size
                     # Масштабируем до разумного размера (макс 2048 по большей стороне)
                     max_side = 2048
@@ -7754,6 +8098,12 @@ end tell
         
         try:
             img = Image.open(file)
+            # ВАЖНО: учитываем EXIF orientation
+            try:
+                from PIL import ImageOps
+                img = ImageOps.exif_transpose(img)
+            except:
+                pass
             w, h = img.size
             
             # Алгоритм определения соотношения с погрешностью
@@ -8190,15 +8540,46 @@ end tell
         
         try:
             prompt = self.ai_prompt.get("1.0", "end").strip()
-            w = int(self.ai_width.get())
-            h = int(self.ai_height.get())
+            
+            # Проверяем, выбран ли пресет "как исходник" - тогда пересчитываем размеры
+            current_preset = self.ai_preset.get() if hasattr(self, 'ai_preset') else None
+            if current_preset == "как исходник" and self.ai_main_image:
+                log("Пресет 'как исходник' - определяю размеры из фото...")
+                try:
+                    img = Image.open(self.ai_main_image if isinstance(self.ai_main_image, str) else self.ai_main_image[0])
+                    # ВАЖНО: учитываем EXIF orientation
+                    try:
+                        from PIL import ImageOps
+                        img = ImageOps.exif_transpose(img)
+                    except:
+                        pass
+                    orig_w, orig_h = img.size
+                    max_side = 2048
+                    if orig_w > orig_h:
+                        w = min(orig_w, max_side)
+                        h = int(w * orig_h / orig_w)
+                    else:
+                        h = min(orig_h, max_side)
+                        w = int(h * orig_w / orig_h)
+                    log(f"Размер из фото: {w}x{h} (оригинал {orig_w}x{orig_h})")
+                except Exception as e:
+                    log(f"Ошибка определения размера: {e}")
+                    w = int(self.ai_width.get())
+                    h = int(self.ai_height.get())
+            else:
+                w = int(self.ai_width.get())
+                h = int(self.ai_height.get())
+            
+            # Детальное логирование для отладки
+            logger.info(f"[AI DEBUG] Финальный размер: w={w}, h={h}")
+            logger.info(f"[AI DEBUG] Ориентация: {'вертикальная' if h > w else 'горизонтальная'}")
             
             if not prompt:
                 prompt = "high quality photo"
                 log("Промпт пустой, использую default")
             
             log(f"Промпт: {prompt[:100]}...")
-            log(f"Размер: {w}x{h}")
+            log(f"Размер: {w}x{h} ({'вертик.' if h > w else 'гориз.'})")
             
             # Загружаем изображения
             main_images = []
@@ -9465,6 +9846,17 @@ end tell
             try:
                 with Image.open(filepath) as img:
                     width, height = img.size
+                    
+                    # Учитываем EXIF-ориентацию (фото с телефона могут быть повёрнуты)
+                    try:
+                        exif = img.getexif()
+                        orientation = exif.get(274, 1)  # 274 = Orientation tag
+                        # Ориентации 5-8 означают поворот на 90° - размеры меняются местами
+                        if orientation in [5, 6, 7, 8]:
+                            width, height = height, width
+                    except:
+                        pass  # Если EXIF недоступен - используем исходные размеры
+                    
                     if width >= height:
                         shutil.copy(filepath, os.path.join(horizontal_folder, filename))
                         stats["horizontal"] += 1

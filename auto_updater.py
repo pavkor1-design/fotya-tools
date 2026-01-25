@@ -818,45 +818,16 @@ def _download_dmg_with_progress(version: str, progress_callback=None) -> tuple:
         if progress_callback:
             progress_callback(0.92, "Установка в Applications...")
         
-        # Копируем приложение в Applications с правами администратора
-        source_app = "/Volumes/PhotoTools/PhotoTools.app"
-        dest_app = "/Applications/PhotoTools.app"
+        # Открываем DMG для ручной установки
+        if progress_callback:
+            progress_callback(0.95, "Открытие DMG...")
         
-        # Используем AppleScript для запроса прав администратора
-        applescript = f'''
-        do shell script "rm -rf '{dest_app}' 2>/dev/null; cp -R '{source_app}' '{dest_app}'" with administrator privileges
-        '''
-        
-        copy_result = subprocess.run(
-            ["osascript", "-e", applescript],
-            capture_output=True, text=True
-        )
+        subprocess.run(["open", "/Volumes/PhotoTools"], capture_output=True)
         
         if progress_callback:
-            progress_callback(0.96, "Снятие карантина...")
+            progress_callback(1.0, "✅ DMG открыт!")
         
-        # Снимаем карантин
-        subprocess.run(["xattr", "-cr", dest_app], capture_output=True)
-        
-        if progress_callback:
-            progress_callback(0.98, "Размонтирование DMG...")
-        
-        # Размонтируем DMG
-        subprocess.run(["hdiutil", "detach", "/Volumes/PhotoTools", "-quiet"], capture_output=True)
-        
-        # Удаляем скачанный DMG
-        try:
-            os.remove(dmg_path)
-        except:
-            pass
-        
-        if progress_callback:
-            progress_callback(1.0, "✅ Установлено!")
-        
-        if copy_result.returncode == 0:
-            return True, f"✅ Версия {version} установлена в Applications!\n\nЗакройте это приложение и запустите PhotoTools из Applications."
-        else:
-            return True, f"DMG скачан.\n\n1. Перетащите PhotoTools в Applications\n2. Закройте это приложение\n3. Запустите новую версию"
+        return True, f"✅ DMG открыт!\n\n📋 Инструкция:\n1. Перетащите PhotoTools в Applications (замените старую версию)\n2. Закройте это приложение\n3. Запустите PhotoTools из Applications\n\nВерсия {version} будет установлена."
         
     except Exception as e:
         return False, f"Ошибка: {str(e)}\n\nСкачайте вручную:\nhttps://github.com/pavkor1-design/fotya-tools/releases"
