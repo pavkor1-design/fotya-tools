@@ -8554,6 +8554,24 @@ end tell
     def _run_generation(self, model_type):
         import datetime
         import time
+        import socket
+        
+        # Проверка интернет-соединения перед началом
+        def check_internet():
+            try:
+                socket.create_connection(("8.8.8.8", 53), timeout=5)
+                return True
+            except OSError:
+                return False
+        
+        if not check_internet():
+            self.after(0, lambda: messagebox.showerror(
+                "Нет интернета", 
+                "Проверьте подключение к интернету и попробуйте снова."
+            ))
+            self.after(0, lambda: self.ai_status.configure(text="❌ Нет интернета"))
+            return
+        
         log_file = os.path.join(self.output_folder, "ai_generation.log")
         
         def log(msg):
@@ -8571,8 +8589,21 @@ end tell
         def update_progress(val):
             self.after(0, lambda: self.ai_progress.set(val))
         
-        def upload_with_retry(file_data, content_type="image/jpeg", max_retries=3):
-            """Загружает файл в FAL с повторными попытками"""
+        def upload_with_retry(file_data, content_type="image/jpeg", max_retries=5):
+            """Загружает файл в FAL с повторными попытками и увеличенными таймаутами"""
+            import httpx
+            
+            # Настраиваем увеличенные таймауты для нестабильных соединений
+            original_timeout = None
+            try:
+                # Пытаемся увеличить таймауты httpx если возможно
+                if hasattr(httpx, '_default_timeout'):
+                    original_timeout = httpx._default_timeout
+                    httpx._default_timeout = httpx.Timeout(120.0, connect=30.0)
+            except:
+                pass
+            
+            last_error = None
             for attempt in range(max_retries):
                 try:
                     log(f"Попытка загрузки {attempt + 1}/{max_retries}...")
@@ -8580,13 +8611,33 @@ end tell
                     log(f"✅ Загружено успешно")
                     return url
                 except Exception as e:
-                    log(f"⚠️ Ошибка загрузки (попытка {attempt + 1}): {str(e)}")
+                    last_error = e
+                    error_str = str(e).lower()
+                    
+                    # Определяем тип ошибки для лучшей диагностики
+                    is_network_error = any(x in error_str for x in [
+                        'disconnect', 'timeout', 'connection', 'reset', 
+                        'refused', 'network', 'ssl', 'eof', 'broken pipe'
+                    ])
+                    
+                    if is_network_error:
+                        log(f"⚠️ Сетевая ошибка (попытка {attempt + 1}): {str(e)}")
+                    else:
+                        log(f"⚠️ Ошибка загрузки (попытка {attempt + 1}): {str(e)}")
+                    
                     if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt  # Экспоненциальная задержка: 1, 2, 4 сек
+                        # Увеличенные задержки: 2, 4, 8, 16 сек
+                        wait_time = 2 ** (attempt + 1)
                         log(f"Повтор через {wait_time} сек...")
                         time.sleep(wait_time)
                     else:
-                        raise Exception(f"Не удалось загрузить файл после {max_retries} попыток: {str(e)}")
+                        # Восстанавливаем таймауты
+                        if original_timeout:
+                            try:
+                                httpx._default_timeout = original_timeout
+                            except:
+                                pass
+                        raise Exception(f"Не удалось загрузить файл после {max_retries} попыток. Проверьте интернет-соединение. Последняя ошибка: {str(last_error)}")
         
         update_status(f"⏳ Генерация через {model_type}...")
         update_progress(0.1)
