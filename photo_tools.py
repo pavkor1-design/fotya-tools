@@ -2270,7 +2270,29 @@ class PhotoToolsApp(ctk.CTk):
     def load_storyboard_files(self):
         files = filedialog.askopenfilenames(filetypes=[("Images", "*.jpg *.jpeg *.png *.webp")])
         if files:
-            self.save_undo_state()  # Сохраняем состояние для Undo
+            # Если уже есть фото - спрашиваем что делать
+            if self.storyboard_images:
+                result = messagebox.askyesnocancel(
+                    "Загрузка файлов",
+                    f"В раскадровке уже есть {len(self.storyboard_images)} фото.\n\n"
+                    "Да - Очистить и загрузить новые\n"
+                    "Нет - Добавить к существующим\n"
+                    "Отмена - Не загружать"
+                )
+                if result is None:  # Отмена
+                    return
+                if result:  # Да - очистить
+                    self.save_undo_state()
+                    self.storyboard_images = []
+                    self.thumbnail_cache.clear()
+                    self.base_thumbnail_cache.clear()
+                    if hasattr(self, '_fullsize_cache_map'):
+                        self._fullsize_cache_map.clear()
+                    logger.info("Раскадровка очищена перед загрузкой новых файлов")
+                else:  # Нет - добавить
+                    self.save_undo_state()
+            else:
+                self.save_undo_state()  # Сохраняем состояние для Undo
             
             # Добавляем новые файлы сеткой (упорядоченно)
             canvas_w = self.storyboard_canvas.winfo_width() or 800
@@ -2298,7 +2320,29 @@ class PhotoToolsApp(ctk.CTk):
     def load_storyboard_folder(self):
         folder = filedialog.askdirectory()
         if folder:
-            self.save_undo_state()  # Сохраняем состояние для Undo
+            # Если уже есть фото - спрашиваем что делать
+            if self.storyboard_images:
+                result = messagebox.askyesnocancel(
+                    "Загрузка папки",
+                    f"В раскадровке уже есть {len(self.storyboard_images)} фото.\n\n"
+                    "Да - Очистить и загрузить новые\n"
+                    "Нет - Добавить к существующим\n"
+                    "Отмена - Не загружать"
+                )
+                if result is None:  # Отмена
+                    return
+                if result:  # Да - очистить
+                    self.save_undo_state()
+                    self.storyboard_images = []
+                    self.thumbnail_cache.clear()
+                    self.base_thumbnail_cache.clear()
+                    if hasattr(self, '_fullsize_cache_map'):
+                        self._fullsize_cache_map.clear()
+                    logger.info("Раскадровка очищена перед загрузкой новой папки")
+                else:  # Нет - добавить
+                    self.save_undo_state()
+            else:
+                self.save_undo_state()  # Сохраняем состояние для Undo
             
             canvas_w = self.storyboard_canvas.winfo_width() or 800
             
@@ -3551,8 +3595,18 @@ end tell
         storyboard_folder = os.path.join(self.output_folder, "Раскадровка")
         os.makedirs(storyboard_folder, exist_ok=True)
         
-        # Логируем количество изображений
+        # Логируем количество изображений и их источники
         logger.info(f"Экспорт раскадровки: {len(self.storyboard_images)} изображений")
+        
+        # Анализируем источники файлов для отладки
+        from collections import Counter
+        folders = Counter()
+        for img in self.storyboard_images:
+            orig_path = img.get("original_path", img.get("path", ""))
+            if orig_path:
+                folder = os.path.dirname(orig_path)
+                folders[folder] += 1
+        logger.info(f"Источники файлов: {dict(folders)}")
         
         # Сортируем по позиции: сверху вниз, слева направо (по строкам)
         row_height = 120  # Примерная высота строки
