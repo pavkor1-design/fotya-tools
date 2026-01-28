@@ -7285,18 +7285,18 @@ end tell
         self.qwen_rotate.pack(padx=8, pady=(0, 5))
         self.qwen_rotate.set(0)
         
-        # Move forward (0 to 10)
+        # Move forward (-1 to 1)
         forward_row = ctk.CTkFrame(self.qwen_settings_frame, fg_color="transparent")
         forward_row.pack(fill="x", padx=8, pady=3)
         ctk.CTkLabel(forward_row, text="Приближение:",
                     font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                     text_color=COLORS["text_secondary"]).pack(side="left")
-        self.qwen_forward_label = ctk.CTkLabel(forward_row, text="0",
+        self.qwen_forward_label = ctk.CTkLabel(forward_row, text="0.0",
                                                font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
                                                text_color=COLORS["primary"], width=40)
         self.qwen_forward_label.pack(side="right")
         
-        self.qwen_forward = ctk.CTkSlider(self.qwen_settings_frame, from_=0, to=10,
+        self.qwen_forward = ctk.CTkSlider(self.qwen_settings_frame, from_=-1, to=1,
                                           number_of_steps=20, width=300,
                                           command=lambda v: self.qwen_forward_label.configure(text=f"{v:.1f}"))
         self.qwen_forward.pack(padx=8, pady=(0, 5))
