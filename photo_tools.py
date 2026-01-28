@@ -7098,9 +7098,13 @@ end tell
         
         ctk.CTkRadioButton(models_row2, text="Расширить", variable=self.ai_model_var, value="wide",
                           font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                          command=self._on_model_change).pack(side="left", padx=(0, 15))
+                          command=self._on_model_change).pack(side="left")
         
-        ctk.CTkRadioButton(models_row2, text="Убрать ватермарку", variable=self.ai_model_var, value="unwatermark",
+        # Третий ряд - Убрать ватермарку
+        models_row3 = ctk.CTkFrame(model_frame, fg_color="transparent")
+        models_row3.pack(fill="x", padx=8, pady=(2, 8))
+        
+        ctk.CTkRadioButton(models_row3, text="Убрать ватермарку", variable=self.ai_model_var, value="unwatermark",
                           font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                           command=self._on_model_change).pack(side="left")
         
@@ -8768,8 +8772,11 @@ end tell
         def log(msg):
             """Логирует в файл, консоль и UI"""
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            with open(log_file, "a") as f:
-                f.write(f"[{timestamp}] {msg}\n")
+            try:
+                with open(log_file, "a") as f:
+                    f.write(f"[{timestamp}] {msg}\n")
+            except:
+                pass  # Игнорируем ошибки записи в файл
             print(f"[LOG] {msg}")
             # Обновляем UI из основного потока
             self.after(0, lambda: self._ai_log(msg))
@@ -9174,12 +9181,12 @@ end tell
                     
                     try:
                         result = fal_client.subscribe(model_id, arguments=params, with_logs=True)
-                        all_results.append((img_path, result))
+                        all_results.append((img_path, result, w, h))  # Сохраняем размеры
                         log(f"✅ Готово {idx+1}/{len(main_images)}")
                         update_progress(0.5 + (0.3 * (idx + 1) / len(main_images)))
                     except Exception as e:
                         log(f"❌ Ошибка при обработке {os.path.basename(img_path)}: {e}")
-                        all_results.append((img_path, None))
+                        all_results.append((img_path, None, w, h))
                 
                 # Используем последний результат для отображения
                 result = all_results[-1][1] if all_results else None
@@ -9237,7 +9244,15 @@ end tell
                 last_saved_img = None
                 saved_paths = []  # Пути для галереи
                 
-                for idx, (img_path, res) in enumerate(all_results):
+                for item in all_results:
+                    # Unwatermark сохраняет размеры в кортеже (path, result, w, h)
+                    # Wide использует (path, result)
+                    if len(item) == 4:
+                        img_path, res, item_w, item_h = item
+                    else:
+                        img_path, res = item
+                        item_w, item_h = w, h  # Используем глобальные размеры для wide
+                    
                     if res is None:
                         continue
                     
@@ -9268,7 +9283,7 @@ end tell
                             orig_name = os.path.splitext(os.path.basename(img_path))[0]
                             timestamp = datetime.datetime.now().strftime("%H%M%S")
                             suffix = "unwatermark" if model_type == "unwatermark" else "wide"
-                            out_name = f"{orig_name}_{suffix}_{w}x{h}_{timestamp}.jpg"
+                            out_name = f"{orig_name}_{suffix}_{item_w}x{item_h}_{timestamp}.jpg"
                             out_path = os.path.join(save_folder, out_name)
                             
                             img.save(out_path, 'JPEG', quality=95, optimize=True)
