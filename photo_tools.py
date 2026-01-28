@@ -7098,6 +7098,10 @@ end tell
         
         ctk.CTkRadioButton(models_row2, text="Расширить", variable=self.ai_model_var, value="wide",
                           font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                          command=self._on_model_change).pack(side="left", padx=(0, 15))
+        
+        ctk.CTkRadioButton(models_row2, text="Убрать ватермарку", variable=self.ai_model_var, value="unwatermark",
+                          font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                           command=self._on_model_change).pack(side="left")
         
         # Scrollable frame для динамических настроек
@@ -7472,6 +7476,95 @@ end tell
         
         ctk.CTkLabel(self.wide_settings_frame, 
                     text="Каждое фото обрабатывается отдельно • 4K разрешение",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                    text_color=COLORS["text_secondary"]).pack(anchor="w", padx=8, pady=(3, 8))
+        
+        # === НАСТРОЙКИ UNWATERMARK (скрыты по умолчанию) ===
+        self.unwatermark_settings_frame = ctk.CTkFrame(scroll_frame, fg_color=COLORS["bg_secondary"], corner_radius=GLASS_CORNER_RADIUS_SMALL)
+        # Не pack() - будет показан при выборе Unwatermark
+        
+        ctk.CTkLabel(self.unwatermark_settings_frame, text="🧹 Убрать ватермарку",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                    text_color=COLORS["text_primary"]).pack(anchor="w", padx=8, pady=(8, 5))
+        
+        # Две кнопки: Выбрать фото / Выбрать папку
+        unwatermark_btn_frame = ctk.CTkFrame(self.unwatermark_settings_frame, fg_color="transparent")
+        unwatermark_btn_frame.pack(fill="x", padx=8, pady=5)
+        
+        ctk.CTkButton(unwatermark_btn_frame, text="📷 Выбрать фото", 
+                     command=self._load_unwatermark_files,
+                     height=32, width=130, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"],
+                     corner_radius=8).pack(side="left", padx=(0, 10))
+        
+        ctk.CTkButton(unwatermark_btn_frame, text="📁 Выбрать папку", 
+                     command=self._load_unwatermark_folder,
+                     height=32, width=130, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"],
+                     corner_radius=8).pack(side="left")
+        
+        # Счетчик и кнопка очистки
+        self.unwatermark_count_label = ctk.CTkLabel(unwatermark_btn_frame, text="0 фото",
+                                             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                                             text_color=COLORS["text_secondary"])
+        self.unwatermark_count_label.pack(side="left", padx=10)
+        
+        ctk.CTkButton(unwatermark_btn_frame, text="✕", width=28, height=28,
+                     command=self._clear_unwatermark_images,
+                     fg_color="#ff4444", hover_color="#cc0000",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="right")
+        
+        # Список превью изображений с горизонтальным скроллом
+        self.unwatermark_preview_frame = ctk.CTkFrame(self.unwatermark_settings_frame, fg_color=COLORS["bg_tertiary"],
+                                               corner_radius=8, height=75)
+        self.unwatermark_preview_frame.pack(fill="x", padx=8, pady=5)
+        self.unwatermark_preview_frame.pack_propagate(False)
+        
+        # Canvas для горизонтального скролла
+        self.unwatermark_preview_canvas = tk.Canvas(self.unwatermark_preview_frame, bg=COLORS["bg_tertiary"],
+                                             highlightthickness=0, height=50)
+        self.unwatermark_preview_canvas.pack(side="top", fill="both", expand=True, padx=2, pady=(2, 0))
+        
+        self.unwatermark_preview_scroll = ctk.CTkFrame(self.unwatermark_preview_canvas, fg_color="transparent")
+        self.unwatermark_preview_canvas_window = self.unwatermark_preview_canvas.create_window(
+            (0, 0), window=self.unwatermark_preview_scroll, anchor="nw")
+        
+        # Горизонтальный scrollbar внизу
+        self.unwatermark_scrollbar = tk.Scrollbar(self.unwatermark_preview_frame, orient="horizontal",
+                                           command=self.unwatermark_preview_canvas.xview)
+        self.unwatermark_scrollbar.pack(side="bottom", fill="x", padx=2, pady=(0, 2))
+        self.unwatermark_preview_canvas.configure(xscrollcommand=self.unwatermark_scrollbar.set)
+        
+        # Привязываем скролл колёсиком мыши и трекпадом
+        def _on_unwatermark_mousewheel(event):
+            self.unwatermark_preview_canvas.xview_scroll(int(-1 * (event.delta / 30)), "units")
+        self.unwatermark_preview_canvas.bind("<MouseWheel>", _on_unwatermark_mousewheel)
+        self.unwatermark_preview_scroll.bind("<MouseWheel>", _on_unwatermark_mousewheel)
+        
+        # Обновляем scrollregion при изменении размера
+        def _on_unwatermark_frame_configure(event):
+            self.unwatermark_preview_canvas.configure(scrollregion=self.unwatermark_preview_canvas.bbox("all"))
+        self.unwatermark_preview_scroll.bind("<Configure>", _on_unwatermark_frame_configure)
+        
+        self.unwatermark_images = []  # Список путей к изображениям
+        self.unwatermark_preview_photos = []  # Ссылки на фото для превью
+        
+        # Выбор модели для Unwatermark
+        ctk.CTkLabel(self.unwatermark_settings_frame, text="Модель для удаления ватермарки:",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                    text_color=COLORS["text_secondary"]).pack(anchor="w", padx=8, pady=(5, 3))
+        
+        self.unwatermark_model_var = ctk.StringVar(value="seedream")
+        unwatermark_model_row = ctk.CTkFrame(self.unwatermark_settings_frame, fg_color="transparent")
+        unwatermark_model_row.pack(fill="x", padx=8, pady=3)
+        
+        ctk.CTkRadioButton(unwatermark_model_row, text="Seedream 4.5", variable=self.unwatermark_model_var, value="seedream",
+                          font=ctk.CTkFont(family=FONT_FAMILY, size=10)).pack(side="left", padx=(0, 15))
+        ctk.CTkRadioButton(unwatermark_model_row, text="NanoBanana Pro", variable=self.unwatermark_model_var, value="nana",
+                          font=ctk.CTkFont(family=FONT_FAMILY, size=10)).pack(side="left")
+        
+        ctk.CTkLabel(self.unwatermark_settings_frame, 
+                    text="Сохраняет соотношение сторон оригинала • Пакетная обработка",
                     font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                     text_color=COLORS["text_secondary"]).pack(anchor="w", padx=8, pady=(3, 8))
         
@@ -7875,6 +7968,94 @@ end tell
         self.wide_custom_frame.pack_forget()
         self._ai_log(f"Wide: выбрано соотношение {ratio}")
     
+    def _load_unwatermark_files(self):
+        """Загрузка файлов для Unwatermark режима"""
+        files = filedialog.askopenfilenames(filetypes=[("Images", "*.jpg *.jpeg *.png *.webp")])
+        if files:
+            self.unwatermark_images = list(files)
+            self._update_unwatermark_preview()
+            self._ai_log(f"Unwatermark: загружено {len(files)} фото")
+    
+    def _load_unwatermark_folder(self):
+        """Загрузка папки с фото для Unwatermark режима"""
+        folder = filedialog.askdirectory(title="Выберите папку с фотографиями")
+        if folder:
+            import glob
+            image_files = []
+            for ext in ['*.jpg', '*.jpeg', '*.png', '*.webp', '*.JPG', '*.JPEG', '*.PNG', '*.WEBP']:
+                image_files.extend(glob.glob(os.path.join(folder, ext)))
+            
+            if image_files:
+                self.unwatermark_images = image_files
+                self._update_unwatermark_preview()
+                self._ai_log(f"Unwatermark: загружено {len(image_files)} фото из папки {os.path.basename(folder)}")
+            else:
+                messagebox.showwarning("Папка пуста", "В выбранной папке нет изображений")
+    
+    def _clear_unwatermark_images(self):
+        """Очистка списка изображений Unwatermark"""
+        self.unwatermark_images = []
+        self._update_unwatermark_preview()
+        self._ai_log("Unwatermark: список очищен")
+    
+    def _update_unwatermark_preview(self):
+        """Обновление превью списка изображений Unwatermark с горизонтальным скроллом"""
+        # Очищаем превью
+        for widget in self.unwatermark_preview_scroll.winfo_children():
+            widget.destroy()
+        self.unwatermark_preview_photos = []
+        
+        # Обновляем счетчик
+        self.unwatermark_count_label.configure(text=f"{len(self.unwatermark_images)} фото")
+        
+        if not self.unwatermark_images:
+            ctk.CTkLabel(self.unwatermark_preview_scroll, text="Нет фото",
+                        font=ctk.CTkFont(size=10), text_color=COLORS["text_secondary"]).pack(expand=True)
+            return
+        
+        # Показываем ВСЕ превью с крестиком для удаления (скролл позволяет)
+        for i, path in enumerate(self.unwatermark_images):
+            try:
+                img = Image.open(path)
+                # Применяем EXIF-ориентацию
+                try:
+                    from PIL import ImageOps
+                    img = ImageOps.exif_transpose(img)
+                except:
+                    pass
+                img.thumbnail((45, 45), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                self.unwatermark_preview_photos.append(photo)
+                
+                # Контейнер для фото + крестик
+                item_frame = ctk.CTkFrame(self.unwatermark_preview_scroll, fg_color="transparent", 
+                                         width=50, height=50)
+                item_frame.pack(side="left", padx=1)
+                item_frame.pack_propagate(False)
+                
+                # Фото
+                lbl = ctk.CTkLabel(item_frame, image=photo, text="", cursor="hand2")
+                lbl.place(relx=0.5, rely=0.5, anchor="center")
+                lbl.bind("<Button-1>", lambda e, p=path: self._show_enlarged_image(p))
+                lbl.bind("<MouseWheel>", lambda e: self.unwatermark_preview_canvas.xview_scroll(int(-1 * (e.delta / 120)), "units"))
+                
+                # Маленький крестик в правом верхнем углу
+                close_btn = ctk.CTkLabel(item_frame, text="×", width=12, height=12,
+                                        font=ctk.CTkFont(size=9, weight="bold"),
+                                        fg_color=COLORS["danger"], text_color="white",
+                                        corner_radius=6, cursor="hand2")
+                close_btn.place(relx=1.0, rely=0, anchor="ne", x=0, y=0)
+                close_btn.bind("<Button-1>", lambda e, p=path: self._remove_unwatermark_image(p))
+            except:
+                pass
+    
+    def _remove_unwatermark_image(self, path):
+        """Удаляет одно фото из списка Unwatermark"""
+        if path in self.unwatermark_images:
+            self.unwatermark_images.remove(path)
+            self._update_unwatermark_preview()
+            self._ai_log(f"Unwatermark: удалено фото, осталось {len(self.unwatermark_images)}")
+    
     def load_ai_main_image(self):
         # Проверяем режим - для Wide можно выбрать несколько фото
         model = self.ai_model_var.get()
@@ -8115,6 +8296,7 @@ end tell
         self.ai_size_frame.pack_forget()
         self.qwen_settings_frame.pack_forget()
         self.wide_settings_frame.pack_forget()
+        self.unwatermark_settings_frame.pack_forget()
         self.ai_generate_btn.pack_forget()
         
         # Показываем элементы в правильном порядке в зависимости от модели
@@ -8128,6 +8310,11 @@ end tell
             # Wide: только настройки Wide (у него свой выбор фото)
             self.wide_settings_frame.pack(fill="x", padx=5, pady=5)
             self._ai_log("📐 Модель Расширить: горизонтальное расширение изображения")
+            
+        elif model == "unwatermark":
+            # Unwatermark: только настройки Unwatermark (у него свой выбор фото)
+            self.unwatermark_settings_frame.pack(fill="x", padx=5, pady=5)
+            self._ai_log("🧹 Модель Убрать ватермарку: удаление водяных знаков")
             
         else:
             # Seedream, NanoBanana и другие: полный набор элементов
@@ -8527,10 +8714,14 @@ end tell
         
         model = self.ai_model_var.get()
         
-        # Для Wide режима проверяем wide_images, для остальных - ai_main_image
+        # Для Wide и Unwatermark режимов проверяем соответствующие списки, для остальных - ai_main_image
         if model == "wide":
             if not hasattr(self, 'wide_images') or not self.wide_images:
                 messagebox.showwarning("Ошибка", "Выберите фото для расширения!")
+                return
+        elif model == "unwatermark":
+            if not hasattr(self, 'unwatermark_images') or not self.unwatermark_images:
+                messagebox.showwarning("Ошибка", "Выберите фото для удаления ватермарки!")
                 return
         else:
             if not self.ai_main_image:
@@ -8702,6 +8893,19 @@ end tell
                         url = upload_with_retry(f.read(), "image/jpeg")
                     main_images.append((img_path, url))
                     log(f"  ✅ {i+1}/{len(self.wide_images)}: {os.path.basename(img_path)}")
+                main_url = main_images[0][1] if main_images else None
+            elif model_type == "unwatermark":
+                # Unwatermark использует свой список изображений
+                if not hasattr(self, 'unwatermark_images') or not self.unwatermark_images:
+                    raise ValueError("Выберите фото для удаления ватермарки!")
+                update_status("📤 Загрузка фотографий...")
+                log(f"Unwatermark: загружаю {len(self.unwatermark_images)} фотографий")
+                for i, img_path in enumerate(self.unwatermark_images):
+                    # Загружаем через байты, чтобы избежать проблем с русскими именами файлов
+                    with open(img_path, 'rb') as f:
+                        url = upload_with_retry(f.read(), "image/jpeg")
+                    main_images.append((img_path, url))
+                    log(f"  ✅ {i+1}/{len(self.unwatermark_images)}: {os.path.basename(img_path)}")
                 main_url = main_images[0][1] if main_images else None
             elif isinstance(self.ai_main_image, list):
                 # Множественные фото (для совместимости)
@@ -8895,6 +9099,92 @@ end tell
                 result = all_results[-1][1] if all_results else None
                 log(f"✅ Пакетная обработка завершена: {len(all_results)} фото")
                 
+            elif model_type == "unwatermark":
+                # Unwatermark - пакетная обработка с сохранением соотношения сторон оригинала
+                unwatermark_model = self.unwatermark_model_var.get()
+                if unwatermark_model == "nana":
+                    model_id = "fal-ai/nano-banana-pro/edit"
+                    log(f"Модель: NanoBanana Pro")
+                else:
+                    model_id = "fal-ai/bytedance/seedream/v4.5/edit"
+                    log(f"Модель: Seedream 4.5")
+                
+                subfolder = "Unwatermark"
+                log(f"Пакетная обработка: {len(main_images)} фото")
+                
+                # Обрабатываем каждое фото ОТДЕЛЬНЫМ запросом с сохранением соотношения сторон
+                all_results = []
+                for idx, (img_path, img_url) in enumerate(main_images):
+                    update_status(f"🧹 Удаление ватермарки {idx+1}/{len(main_images)}...")
+                    log(f"--- Обработка {idx+1}/{len(main_images)}: {os.path.basename(img_path)} ---")
+                    
+                    # Определяем размер оригинала с учетом EXIF
+                    try:
+                        img = Image.open(img_path)
+                        from PIL import ImageOps
+                        img = ImageOps.exif_transpose(img)
+                        orig_w, orig_h = img.size
+                        log(f"Оригинальный размер: {orig_w}x{orig_h}")
+                        
+                        # Сохраняем соотношение сторон, масштабируя до разумного размера
+                        max_side = 2048 if unwatermark_model == "nana" else 3840
+                        if orig_w > orig_h:
+                            w = min(orig_w, max_side)
+                            h = int(w * orig_h / orig_w)
+                        else:
+                            h = min(orig_h, max_side)
+                            w = int(h * orig_w / orig_h)
+                        
+                        # Округляем до четных чисел для совместимости
+                        w = (w // 2) * 2
+                        h = (h // 2) * 2
+                        
+                        log(f"Размер для обработки: {w}x{h} (соотношение {orig_w/orig_h:.2f})")
+                    except Exception as e:
+                        log(f"⚠️ Ошибка определения размера: {e}, использую 2048x2048")
+                        w, h = 2048, 2048
+                    
+                    if unwatermark_model == "nana":
+                        # NanoBanana Pro параметры
+                        ratio = w / h
+                        allowed_ratios = [
+                            ("21:9", 21/9), ("16:9", 16/9), ("3:2", 3/2), ("4:3", 4/3),
+                            ("5:4", 5/4), ("1:1", 1/1), ("4:5", 4/5), ("3:4", 3/4),
+                            ("2:3", 2/3), ("9:16", 9/16)
+                        ]
+                        aspect_ratio = min(allowed_ratios, key=lambda x: abs(x[1] - ratio))[0]
+                        
+                        params = {
+                            "prompt": "Remove watermark from this image",
+                            "image_urls": [img_url],
+                            "aspect_ratio": aspect_ratio,
+                            "output_format": "jpeg"
+                        }
+                        log(f"NanoBanana: aspect_ratio={aspect_ratio}")
+                    else:
+                        # Seedream параметры
+                        params = {
+                            "prompt": "Remove watermark from this image",
+                            "image_urls": [img_url],
+                            "image_size": {"width": w, "height": h},
+                            "num_images": 1,
+                            "enable_safety_checker": False
+                        }
+                        log(f"Seedream: size={w}x{h}")
+                    
+                    try:
+                        result = fal_client.subscribe(model_id, arguments=params, with_logs=True)
+                        all_results.append((img_path, result))
+                        log(f"✅ Готово {idx+1}/{len(main_images)}")
+                        update_progress(0.5 + (0.3 * (idx + 1) / len(main_images)))
+                    except Exception as e:
+                        log(f"❌ Ошибка при обработке {os.path.basename(img_path)}: {e}")
+                        all_results.append((img_path, None))
+                
+                # Используем последний результат для отображения
+                result = all_results[-1][1] if all_results else None
+                log(f"✅ Пакетная обработка завершена: {len(all_results)} фото")
+                
             elif model_type == "nana":
                 # Nano Banana Pro Edit - image-to-image редактирование
                 model_id = "fal-ai/nano-banana-pro/edit"
@@ -8940,8 +9230,8 @@ end tell
             save_folder = os.path.join(self.output_folder, subfolder)
             os.makedirs(save_folder, exist_ok=True)
             
-            # Для Wide режима с пакетной обработкой
-            if model_type == "wide" and 'all_results' in locals():
+            # Для Wide и Unwatermark режимов с пакетной обработкой
+            if (model_type == "wide" or model_type == "unwatermark") and 'all_results' in locals():
                 log(f"Сохранение пакетных результатов...")
                 saved_count = 0
                 last_saved_img = None
@@ -8977,7 +9267,8 @@ end tell
                             # Сохраняем с именем оригинала
                             orig_name = os.path.splitext(os.path.basename(img_path))[0]
                             timestamp = datetime.datetime.now().strftime("%H%M%S")
-                            out_name = f"{orig_name}_wide_{w}x{h}_{timestamp}.jpg"
+                            suffix = "unwatermark" if model_type == "unwatermark" else "wide"
+                            out_name = f"{orig_name}_{suffix}_{w}x{h}_{timestamp}.jpg"
                             out_path = os.path.join(save_folder, out_name)
                             
                             img.save(out_path, 'JPEG', quality=95, optimize=True)
