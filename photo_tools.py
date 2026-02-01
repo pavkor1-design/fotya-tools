@@ -8710,12 +8710,22 @@ end tell
         # Проверка разрешения на использование AI
         try:
             from license_manager import license_manager
-            if not license_manager.is_ai_enabled():
+
+            # Если пользователь не авторизован - разрешаем доступ (fallback)
+            if not license_manager.current_user:
+                logger.info("AI: Пользователь не авторизован, доступ разрешён (fallback)")
+            elif not license_manager.is_ai_enabled():
                 messagebox.showwarning("Доступ запрещён", "У вас нет доступа к нейросетям.\nОбратитесь к администратору.")
+                logger.warning(f"AI: Доступ запрещён для пользователя {license_manager.current_user.get('username', 'unknown')}")
                 return
-        except:
-            pass
-        
+
+        except ImportError as e:
+            logger.error(f"AI: Ошибка импорта license_manager: {e}")
+        except AttributeError as e:
+            logger.error(f"AI: Метод не найден в license_manager: {e}")
+        except Exception as e:
+            logger.error(f"AI: Ошибка проверки лицензии: {e}")
+
         model = self.ai_model_var.get()
         
         # Для Wide и Unwatermark режимов проверяем соответствующие списки, для остальных - ai_main_image

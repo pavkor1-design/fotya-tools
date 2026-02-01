@@ -21,7 +21,7 @@ import threading
 import time
 
 # Версия приложения
-APP_VERSION = "1.0.51"
+APP_VERSION = "1.1.0"
 
 # API сервер на TimeWeb
 AUTH_API_URL = "http://5.129.203.43:8085/api"
@@ -230,7 +230,25 @@ class LicenseManager:
                         self.logout()
                     else:
                         self.permissions = result.get("permissions", self.permissions)
-    
+
+    # ==================== ПРОВЕРКА РАЗРЕШЕНИЙ ====================
+
+    def check_permission(self, permission: str) -> bool:
+        """Проверяет разрешение пользователя"""
+        if not self.current_user:
+            return False
+        if self.is_admin:
+            return True
+        return self.permissions.get(permission, False)
+
+    def is_ai_enabled(self) -> bool:
+        """Проверяет доступ к нейросетям"""
+        return self.check_permission("ai_enabled")
+
+    def is_app_enabled(self) -> bool:
+        """Проверяет доступ к приложению"""
+        return self.check_permission("app_enabled")
+
     # ==================== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ====================
     
     def get_all_users(self) -> List[Dict]:
