@@ -8707,6 +8707,11 @@ end tell
     
     def _run_ai_generation(self):
         """Запускает генерацию с выбранной моделью"""
+        # Защита от двойного нажатия
+        if getattr(self, '_ai_is_generating', False):
+            logger.warning("AI: Генерация уже запущена, повторный запуск заблокирован")
+            return
+
         # Проверка разрешения на использование AI
         try:
             from license_manager import license_manager
@@ -8727,7 +8732,7 @@ end tell
             logger.error(f"AI: Ошибка проверки лицензии: {e}")
 
         model = self.ai_model_var.get()
-        
+
         # Для Wide и Unwatermark режимов проверяем соответствующие списки, для остальных - ai_main_image
         if model == "wide":
             if not hasattr(self, 'wide_images') or not self.wide_images:
@@ -8741,7 +8746,14 @@ end tell
             if not self.ai_main_image:
                 messagebox.showwarning("Ошибка", "Загрузите главное фото!")
                 return
-        
+
+        # Блокируем кнопку и ставим флаг
+        self._ai_is_generating = True
+        try:
+            self.ai_generate_btn.configure(state="disabled", text="⏳ Генерация...")
+        except Exception:
+            pass
+
         Thread(target=lambda: self._run_generation(model), daemon=True).start()
     
     def generate_seedream(self):
@@ -8800,52 +8812,90 @@ end tell
         def upload_with_retry(file_data, content_type="image/jpeg", max_retries=5):
             """Загружает файл в FAL с повторными попытками и увеличенными таймаутами"""
             import httpx
-            
+
             # Настраиваем увеличенные таймауты для нестабильных соединений
             original_timeout = None
             try:
-                # Пытаемся увеличить таймауты httpx если возможно
                 if hasattr(httpx, '_default_timeout'):
                     original_timeout = httpx._default_timeout
                     httpx._default_timeout = httpx.Timeout(120.0, connect=30.0)
-            except:
+            except Exception:
                 pass
-            
+
+            last_error = None
+            try:
+                for attempt in range(max_retries):
+                    try:
+                        log(f"Попытка загрузки {attempt + 1}/{max_retries}...")
+                        url = fal_client.upload(file_data, content_type)
+                        log(f"✅ Загружено успешно")
+                        return url
+                    except Exception as e:
+                        last_error = e
+                        error_str = str(e).lower()
+
+                        is_network_error = any(x in error_str for x in [
+                            'disconnect', 'timeout', 'connection', 'reset',
+                            'refused', 'network', 'ssl', 'eof', 'broken pipe'
+                        ])
+
+                        if is_network_error:
+                            log(f"⚠️ Сетевая ошибка (попытка {attempt + 1}): {str(e)}")
+                        else:
+                            log(f"⚠️ Ошибка загрузки (попытка {attempt + 1}): {str(e)}")
+
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** (attempt + 1)
+                            log(f"Повтор через {wait_time} сек...")
+                            time.sleep(wait_time)
+                        else:
+                            raise Exception(f"Не удалось загрузить файл после {max_retries} попыток. Проверьте интернет-соединение. Последняя ошибка: {str(last_error)}")
+            finally:
+                # Всегда восстанавливаем таймаут (и при успехе, и при ошибке)
+                if original_timeout is not None:
+                    try:
+                        httpx._default_timeout = original_timeout
+                    except Exception:
+                        pass
+
+        def subscribe_with_retry(model_id, params, max_retries=3):
+            """Вызывает fal_client.subscribe с retry и таймаутом"""
             last_error = None
             for attempt in range(max_retries):
                 try:
-                    log(f"Попытка загрузки {attempt + 1}/{max_retries}...")
-                    url = fal_client.upload(file_data, content_type)
-                    log(f"✅ Загружено успешно")
-                    return url
+                    result = subscribe_with_retry(model_id, params, max_retries=3)
+                    return result
                 except Exception as e:
                     last_error = e
                     error_str = str(e).lower()
-                    
-                    # Определяем тип ошибки для лучшей диагностики
-                    is_network_error = any(x in error_str for x in [
-                        'disconnect', 'timeout', 'connection', 'reset', 
-                        'refused', 'network', 'ssl', 'eof', 'broken pipe'
+                    is_retryable = any(x in error_str for x in [
+                        'timeout', 'connection', 'disconnect', 'reset',
+                        'server error', '500', '502', '503', '504',
+                        'rate limit', '429', 'overloaded', 'capacity'
                     ])
-                    
-                    if is_network_error:
-                        log(f"⚠️ Сетевая ошибка (попытка {attempt + 1}): {str(e)}")
-                    else:
-                        log(f"⚠️ Ошибка загрузки (попытка {attempt + 1}): {str(e)}")
-                    
-                    if attempt < max_retries - 1:
-                        # Увеличенные задержки: 2, 4, 8, 16 сек
-                        wait_time = 2 ** (attempt + 1)
+
+                    if is_retryable and attempt < max_retries - 1:
+                        wait_time = 3 * (attempt + 1)
+                        log(f"⚠️ Ошибка API (попытка {attempt + 1}/{max_retries}): {str(e)}")
                         log(f"Повтор через {wait_time} сек...")
                         time.sleep(wait_time)
                     else:
-                        # Восстанавливаем таймауты
-                        if original_timeout:
-                            try:
-                                httpx._default_timeout = original_timeout
-                            except:
-                                pass
-                        raise Exception(f"Не удалось загрузить файл после {max_retries} попыток. Проверьте интернет-соединение. Последняя ошибка: {str(last_error)}")
+                        raise
+            raise last_error
+
+        def download_result(url, timeout=60):
+            """Скачивает результат с таймаутом и retry"""
+            for attempt in range(3):
+                try:
+                    resp = requests.get(url, timeout=timeout)
+                    resp.raise_for_status()
+                    return resp.content
+                except Exception as e:
+                    if attempt < 2:
+                        log(f"⚠️ Ошибка скачивания (попытка {attempt + 1}): {str(e)}")
+                        time.sleep(2 * (attempt + 1))
+                    else:
+                        raise
         
         update_status(f"⏳ Генерация через {model_type}...")
         update_progress(0.1)
@@ -8984,7 +9034,7 @@ end tell
                 log(f"Отправляю {len(all_urls)} изображений...")
                 
                 # Используем subscribe для длительных генераций
-                result = fal_client.subscribe(model_id, arguments=params, with_logs=True)
+                result = subscribe_with_retry(model_id, params, max_retries=3)
                 log(f"✅ Ответ получен от FAL")
                 
             elif model_type == "qwen_angles":
@@ -9020,7 +9070,7 @@ end tell
                 }
                 
                 log(f"Отправляю запрос с параметрами: {params}")
-                result = fal_client.subscribe(model_id, arguments=params, with_logs=True)
+                result = subscribe_with_retry(model_id, params, max_retries=3)
                 log(f"✅ Ответ получен от FAL")
                 log(f"=== END QWEN DEBUG ===")
             
@@ -9046,8 +9096,8 @@ end tell
                         w = int(self.wide_custom_width.get())
                         h = int(self.wide_custom_height.get())
                         log(f"Кастомный размер: {w}x{h}")
-                    except:
-                        w, h = 3840, 2160 if wide_model != "nana" else 2560, 1440
+                    except Exception:
+                        w, h = (3840, 2160) if wide_model != "nana" else (2560, 1440)
                         log(f"Ошибка чтения кастомного размера, использую 16:9")
                 else:
                     # Предустановленные соотношения - разные для Seedream (4K) и NanoBanana (2K)
@@ -9056,14 +9106,16 @@ end tell
                         wide_sizes = {
                             "3:2": (2560, 1707),
                             "4:3": (2560, 1920),
-                            "16:9": (2560, 1440)
+                            "16:9": (2560, 1440),
+                            "1:1": (2048, 2048)
                         }
                     else:
                         # Seedream - 4K разрешение
                         wide_sizes = {
                             "3:2": (3840, 2560),
                             "4:3": (3840, 2880),
-                            "16:9": (3840, 2160)
+                            "16:9": (3840, 2160),
+                            "1:1": (3072, 3072)
                         }
                     w, h = wide_sizes.get(wide_ratio, (2560, 1440) if wide_model == "nana" else (3840, 2160))
                 
@@ -9104,14 +9156,14 @@ end tell
                         }
                     
                     try:
-                        result = fal_client.subscribe(model_id, arguments=params, with_logs=True)
+                        result = subscribe_with_retry(model_id, params, max_retries=3)
                         all_results.append((img_path, result))
                         log(f"✅ Готово {idx+1}/{len(main_images)}")
                         update_progress(0.5 + (0.3 * (idx + 1) / len(main_images)))
                     except Exception as e:
                         log(f"❌ Ошибка при обработке {os.path.basename(img_path)}: {e}")
                         all_results.append((img_path, None))
-                
+
                 # Используем последний результат для отображения
                 result = all_results[-1][1] if all_results else None
                 log(f"✅ Пакетная обработка завершена: {len(all_results)} фото")
@@ -9190,7 +9242,7 @@ end tell
                         log(f"Seedream: size={w}x{h}")
                     
                     try:
-                        result = fal_client.subscribe(model_id, arguments=params, with_logs=True)
+                        result = subscribe_with_retry(model_id, params, max_retries=3)
                         all_results.append((img_path, result, w, h))  # Сохраняем размеры
                         log(f"✅ Готово {idx+1}/{len(main_images)}")
                         update_progress(0.5 + (0.3 * (idx + 1) / len(main_images)))
@@ -9235,7 +9287,7 @@ end tell
                 }
                 
                 log(f"Отправляю: prompt={prompt}, images={len(all_image_urls)}, aspect_ratio={aspect_ratio}")
-                result = fal_client.subscribe(model_id, arguments=params, with_logs=True)
+                result = subscribe_with_retry(model_id, params, max_retries=3)
                 log(f"✅ Ответ получен от FAL")
             
             else:
@@ -9275,9 +9327,9 @@ end tell
                     
                     if out_url:
                         try:
-                            img_data = requests.get(out_url).content
+                            img_data = download_result(out_url, timeout=60)
                             from io import BytesIO
-                            
+
                             # Проверяем что данные не пустые
                             if len(img_data) < 1000:
                                 log(f"  ⚠️ Слишком маленький ответ для {os.path.basename(img_path)}: {len(img_data)} байт")
@@ -9318,11 +9370,15 @@ end tell
                     self.after(0, self._update_output_gallery)
                 
                 update_progress(1.0)
-                update_status(f"✅ Готово: {saved_count}/{len(all_results)} фото")
                 log(f"✅ Сохранено {saved_count} из {len(all_results)} фото")
-                
-                self.after(0, lambda: messagebox.showinfo("Готово", f"Обработано: {saved_count}/{len(all_results)} фото\nПапка: {save_folder}"))
-                os.system(f'open "{save_folder}"')
+
+                if saved_count == 0:
+                    update_status(f"❌ Не удалось обработать ни одного фото")
+                    self.after(0, lambda: messagebox.showerror("Ошибка", f"Не удалось обработать ни одного фото из {len(all_results)}.\nПроверьте интернет-соединение и попробуйте снова."))
+                else:
+                    update_status(f"✅ Готово: {saved_count}/{len(all_results)} фото")
+                    self.after(0, lambda: messagebox.showinfo("Готово", f"Обработано: {saved_count}/{len(all_results)} фото\nПапка: {save_folder}"))
+                    os.system(f'open "{save_folder}"')
             
             else:
                 # Одиночная обработка для остальных моделей
@@ -9338,7 +9394,7 @@ end tell
                 
                 if out_url:
                     log(f"Скачиваю результат...")
-                    img_data = requests.get(out_url).content
+                    img_data = download_result(out_url, timeout=60)
                     log(f"✅ Скачано {len(img_data) / 1024:.1f} KB")
                     
                     from io import BytesIO
@@ -9383,7 +9439,15 @@ end tell
             log(f"Traceback: {traceback.format_exc()}")
             update_status(f"❌ {error_msg[:50]}")
             self.after(0, lambda: messagebox.showerror("Ошибка", f"{error_msg}\n\nПодробности в логе:\n{log_file}"))
-    
+        finally:
+            # Всегда сбрасываем состояние: прогресс, кнопку, флаг генерации
+            self._ai_is_generating = False
+            self.after(0, lambda: self.ai_progress.set(0))
+            try:
+                self.after(0, lambda: self.ai_generate_btn.configure(state="normal", text="🚀 Сгенерировать"))
+            except Exception:
+                pass
+
     # ==================== МЕТОДЫ ====================
     
     def load_files(self):
@@ -9435,7 +9499,7 @@ end tell
                     file_url = fal_client.upload(f.read(), "image/jpeg")
                 result = fal_client.run(model_id, arguments={"image_url": file_url, "scale": scale})
                 url = result['image']['url']
-                img_data = requests.get(url).content
+                img_data = requests.get(url, timeout=60).content
                 
                 # Переконвертируем через PIL для корректного JPEG
                 # Это исправляет проблемы с цветовым профилем и метаданными
