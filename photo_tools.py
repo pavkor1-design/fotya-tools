@@ -8760,13 +8760,15 @@ end tell
         if not self.ai_main_image:
             messagebox.showwarning("Ошибка", "Загрузите главное фото!")
             return
-        Thread(target=lambda: self._run_generation("seedream"), daemon=True).start()
-    
+        self.ai_model_var.set("seedream")
+        self._run_ai_generation()
+
     def generate_nana(self):
         if not self.ai_main_image:
             messagebox.showwarning("Ошибка", "Загрузите главное фото!")
             return
-        Thread(target=lambda: self._run_generation("nana"), daemon=True).start()
+        self.ai_model_var.set("nana")
+        self._run_ai_generation()
     
     def _run_generation(self, model_type):
         import datetime
@@ -8863,7 +8865,7 @@ end tell
             last_error = None
             for attempt in range(max_retries):
                 try:
-                    result = subscribe_with_retry(model_id, params, max_retries=3)
+                    result = fal_client.subscribe(model_id, arguments=params, with_logs=True)
                     return result
                 except Exception as e:
                     last_error = e
