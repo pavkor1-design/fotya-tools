@@ -17,9 +17,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Устанавливаем зависимости
+:: Устанавливаем зависимости (Windows-специфичный файл)
 echo 📦 Проверка зависимостей...
-pip install -r requirements.txt --quiet 2>nul
+if exist requirements_windows.txt (
+    pip install -r requirements_windows.txt --quiet 2>nul
+) else (
+    pip install -r requirements.txt --quiet 2>nul
+)
 
 :: Запускаем
 echo ✅ Запуск приложения...

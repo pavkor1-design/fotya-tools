@@ -1,0 +1,27 @@
+# PhotoTools - Windows Requirements
+# Python 3.10+ | Установка: pip install -r requirements_windows.txt
+
+# GUI
+customtkinter>=5.2.0
+Pillow>=10.0.0
+
+# AI Image Processing (FAL.ai)
+fal-client>=0.5.0
+
+# Computer Vision
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Web integration
+pywebview>=4.0.0
+requests>=2.31.0
+certifi>=2023.0.0
+
+# Advanced perspective correction
+scipy>=1.11.0
+
+# AutoClicker (mouse/keyboard recording & playback)
+pynput>=1.7.6
+
+# Optional: HEIC support (requires Visual C++ Build Tools on Windows)
+# pillow-heif>=0.13.0

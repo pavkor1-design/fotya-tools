@@ -108,6 +108,36 @@ logger.info(f"=== PhotoTools started, log file: {log_file_path} ===")
 # Отключаем DEBUG для PIL
 logging.getLogger('PIL').setLevel(logging.WARNING)
 
+# === КРОССПЛАТФОРМЕННЫЕ УТИЛИТЫ ===
+def open_folder(path):
+    """Открыть папку в файловом менеджере (macOS/Windows/Linux)"""
+    try:
+        if sys.platform == 'darwin':
+            subprocess.run(['open', path])
+        elif sys.platform == 'win32':
+            os.startfile(path)
+        else:
+            subprocess.run(['xdg-open', path])
+    except Exception as e:
+        logger.warning(f"Could not open folder {path}: {e}")
+
+
+def copy_to_clipboard(text):
+    """Копировать текст в буфер обмена (macOS/Windows/Linux)"""
+    try:
+        if sys.platform == 'darwin':
+            subprocess.run(['pbcopy'], input=text.encode(), check=True)
+        elif sys.platform == 'win32':
+            subprocess.run(['clip'], input=text.encode(), check=True)
+        else:
+            subprocess.run(['xclip', '-selection', 'clipboard'], input=text.encode(), check=True)
+    except Exception as e:
+        logger.warning(f"Could not copy to clipboard: {e}")
+
+
+IS_WINDOWS = sys.platform == 'win32'
+IS_MACOS = sys.platform == 'darwin'
+
 # Drag & Drop - будем использовать простой метод через clipboard/paste
 DND_AVAILABLE = False
 DND_FILES = None
@@ -3716,12 +3746,7 @@ end tell
             messagebox.showinfo("Готово", f"✅ Сохранено {saved_count} файлов в:\n{storyboard_folder}\n\nПорядок: слева→направо, сверху→вниз")
         
         # Открываем папку
-        if sys.platform == 'darwin':
-            subprocess.run(['open', storyboard_folder])
-        elif sys.platform == 'win32':
-            subprocess.run(['explorer', storyboard_folder])
-        else:
-            subprocess.run(['xdg-open', storyboard_folder])
+        open_folder(storyboard_folder)
     
     # ==================== POLARR (онлайн редактор с коррекцией перспективы) ====================
     def open_polarr(self):
@@ -3766,15 +3791,15 @@ end tell
             messagebox.showinfo("Polarr", "Polarr открыт! Выберите файл вручную (нет доступного пути)")
             return
         
-        # Копируем путь в буфер обмена, чтобы ⌘V сразу вставил файл
+        # Копируем путь в буфер обмена
         try:
-            import subprocess
-            subprocess.run(['pbcopy'], input=image_path.encode(), check=True)
+            copy_to_clipboard(image_path)
+            paste_hint = "⌘V" if IS_MACOS else "Ctrl+V"
             messagebox.showinfo(
                 "Polarr",
                 "Polarr открыт!\n\n"
                 "Путь к файлу скопирован в буфер обмена.\n"
-                "В Polarr нажмите ⌘V или используйте 'Open' → 'Paste URL/File'.\n\n"
+                f"В Polarr нажмите {paste_hint} или используйте 'Open' → 'Paste URL/File'.\n\n"
                 f"Файл: {image_path}")
         except Exception as err:
             logger.warning(f"Failed to copy path to clipboard: {err}")
@@ -9380,7 +9405,7 @@ end tell
                 else:
                     update_status(f"✅ Готово: {saved_count}/{len(all_results)} фото")
                     self.after(0, lambda: messagebox.showinfo("Готово", f"Обработано: {saved_count}/{len(all_results)} фото\nПапка: {save_folder}"))
-                    os.system(f'open "{save_folder}"')
+                    open_folder(save_folder)
             
             else:
                 # Одиночная обработка для остальных моделей
@@ -9428,7 +9453,7 @@ end tell
                     update_status(f"✅ Готово: {subfolder}/{out_name}")
                     
                     self.after(0, lambda: messagebox.showinfo("Готово", f"Сохранено:\n{out_path}"))
-                    os.system(f'open "{save_folder}"')
+                    open_folder(save_folder)
                 else:
                     log(f"❌ Нет URL в ответе!")
                     log(f"Ответ: {str(result)[:500] if result else 'None'}")
@@ -9535,7 +9560,7 @@ end tell
         
         self.status_bar.configure(text=f"✅ Готово! {total} файлов")
         messagebox.showinfo("Готово", f"Файлы сохранены в:\n{output_folder}")
-        os.system(f'open "{output_folder}"')
+        open_folder(output_folder)
     
     # --- Compress ---
     def load_compress_files(self):
@@ -9650,7 +9675,7 @@ end tell
         self.compress_progress.set(1.0)
         self.heic_status.configure(text=f"✅ Конвертировано: {converted}, ошибок: {errors}")
         messagebox.showinfo("Готово", f"HEIC → JPG\nКонвертировано: {converted}\nОшибок: {errors}\n\nСохранено в:\n{output_folder}")
-        os.system(f'open "{output_folder}"')
+        open_folder(output_folder)
     
     def convert_heic_to_jpg(self, heic_path):
         """Конвертирует один HEIC файл в JPG и возвращает путь"""
@@ -10200,14 +10225,15 @@ end tell
                 self.wm_progress.set(1.0)
                 self.wm_status.configure(text="✅ Видео сохранено")
                 messagebox.showinfo("Готово", f"Видео сохранено:\n{output_path}")
-                os.system(f'open "{output_folder}"')
+                open_folder(output_folder)
             else:
                 self.wm_status.configure(text="❌ Ошибка ffmpeg")
                 logger.error(f"ffmpeg error: {result.stderr}")
                 messagebox.showerror("Ошибка", f"FFmpeg ошибка:\n{result.stderr[:500]}")
                 
         except FileNotFoundError:
-            self.wm_status.configure(text="⚠️ Установите ffmpeg: brew install ffmpeg")
+            hint = "brew install ffmpeg" if IS_MACOS else "choco install ffmpeg (или scoop install ffmpeg)"
+            self.wm_status.configure(text=f"⚠️ Установите ffmpeg: {hint}")
         except Exception as e:
             self.wm_status.configure(text=f"❌ Ошибка: {e}")
             logger.error(f"Video watermark error: {e}")
@@ -10250,7 +10276,7 @@ end tell
             
             self.wm_status.configure(text=f"✅ Готово {processed}/{total} файлов")
             messagebox.showinfo("Готово", f"Файлы сохранены в:\n{output_folder}")
-            os.system(f'open "{output_folder}"')
+            open_folder(output_folder)
         except Exception as e:
             logger.error(f"Process watermark error: {e}")
             self.wm_status.configure(text=f"❌ Ошибка: {e}")
@@ -10368,12 +10394,7 @@ end tell
             self.status_bar.configure(text=result)
             messagebox.showinfo("Готово", f"{result}\n\nСохранено в: {self.output_folder}")
             # Открываем папку (кроссплатформенно)
-            if sys.platform == 'darwin':
-                subprocess.run(['open', self.output_folder])
-            elif sys.platform == 'win32':
-                subprocess.run(['explorer', self.output_folder])
-            else:
-                subprocess.run(['xdg-open', self.output_folder])
+            open_folder(self.output_folder)
         
         self.after(0, finish)
     
@@ -10504,7 +10525,7 @@ end tell
         self.aspect_status.configure(text=result)
         self.status_bar.configure(text=result)
         messagebox.showinfo("Готово", f"Кроп {ratio_str} применён к {processed} фото\n\nСохранено в: {output_folder}")
-        os.system(f'open "{output_folder}"')
+        open_folder(output_folder)
     
     def start_aspect_fix(self):
         folder = filedialog.askdirectory(title="Выберите папку с фотографиями")
@@ -10675,7 +10696,7 @@ end tell
         self.aspect_status.configure(text=result)
         self.status_bar.configure(text=result)
         messagebox.showinfo("Готово", f"Все фото приведены к:\n• Соотношение: {target_ratio}\n• Разрешение: {final_width}×{final_height}\n\nСохранено в: {output_folder}")
-        os.system(f'open "{output_folder}"')
+        open_folder(output_folder)
     
 
 
@@ -10714,7 +10735,7 @@ end tell
                      corner_radius=8).pack(side="left", padx=2)
         
         ctk.CTkButton(preset_btns, text="📂", width=40, height=30,
-                     command=lambda: os.system(f'open "{self.ac_saves_folder}"'),
+                     command=lambda: open_folder(self.ac_saves_folder),
                      fg_color=COLORS["bg_secondary"], hover_color=COLORS["primary"],
                      corner_radius=8).pack(side="left", padx=2)
         
@@ -10871,13 +10892,33 @@ end tell
     
     def ac_setup_global_hotkeys(self):
         """Настройка глобальных горячих клавиш для автокликера
-        ОТКЛЮЧЕНО: pynput.keyboard.Listener вызывает trace trap на macOS.
-        Используйте кнопки в интерфейсе вместо горячих клавиш.
+        macOS: ОТКЛЮЧЕНО — pynput.keyboard.Listener вызывает trace trap.
+        Windows: Включено — pynput работает стабильно.
         """
-        logger.info("Global hotkeys DISABLED (causes trace trap on macOS)")
-        logger.info("Use UI buttons instead: Record, Stop, Play")
-        # Горячие клавиши отключены для стабильности на macOS
-        return
+        if IS_WINDOWS:
+            try:
+                from pynput.keyboard import Listener, Key
+
+                def on_hotkey(key):
+                    try:
+                        if key == Key.f6:
+                            self.after(0, self.ac_toggle_recording)
+                        elif key == Key.f7:
+                            self.after(0, self.ac_toggle_playback)
+                        elif key == Key.esc:
+                            self.after(0, self.ac_stop_all)
+                    except Exception:
+                        pass
+
+                self._ac_hotkey_listener = Listener(on_press=on_hotkey)
+                self._ac_hotkey_listener.daemon = True
+                self._ac_hotkey_listener.start()
+                logger.info("Global hotkeys ENABLED (Windows): F6=Record, F7=Play, ESC=Stop")
+            except Exception as e:
+                logger.warning(f"Failed to setup global hotkeys: {e}")
+        else:
+            logger.info("Global hotkeys DISABLED (causes trace trap on macOS)")
+            logger.info("Use UI buttons instead: Record, Stop, Play")
     
     def ac_stop_all(self):
         """Остановить всё (ESC) - не сохраняем автоматически"""
@@ -11017,88 +11058,101 @@ end tell
             self.ac_record_status.configure(text=f"❌ Ошибка мыши: {e}", text_color=COLORS["danger"])
             return
         
-        # Keyboard listener через Quartz (macOS native API)
-        try:
-            import Quartz
-            from Quartz import (
-                CGEventTapCreate, kCGSessionEventTap, kCGHeadInsertEventTap,
-                kCGEventTapOptionListenOnly, CGEventMaskBit, kCGEventKeyDown, kCGEventKeyUp,
-                CFMachPortCreateRunLoopSource, CFRunLoopGetCurrent, CFRunLoopAddSource,
-                kCFRunLoopCommonModes, CGEventTapEnable, CGEventGetIntegerValueField,
-                kCGKeyboardEventKeycode
-            )
-            import threading
-            
-            def keyboard_callback(proxy, event_type, event, refcon):
-                if not self.ac_recording:
+        # Keyboard listener - платформозависимый
+        if IS_WINDOWS:
+            # Windows: используем pynput.keyboard.Listener (работает стабильно)
+            try:
+                from pynput import keyboard as kb_listener
+
+                self.ac_keyboard_listener = kb_listener.Listener(
+                    on_press=on_key_press, on_release=on_key_release)
+                self.ac_keyboard_listener.start()
+                logger.info("Keyboard recording started (pynput Listener — Windows)")
+            except Exception as e:
+                logger.error(f"Failed to start keyboard listener: {e}")
+        else:
+            # macOS: Quartz CGEventTap (pynput вызывает trace trap на macOS)
+            try:
+                import Quartz
+                from Quartz import (
+                    CGEventTapCreate, kCGSessionEventTap, kCGHeadInsertEventTap,
+                    kCGEventTapOptionListenOnly, CGEventMaskBit, kCGEventKeyDown, kCGEventKeyUp,
+                    CFMachPortCreateRunLoopSource, CFRunLoopGetCurrent, CFRunLoopAddSource,
+                    kCFRunLoopCommonModes, CGEventTapEnable, CGEventGetIntegerValueField,
+                    kCGKeyboardEventKeycode
+                )
+                import threading
+
+                def keyboard_callback(proxy, event_type, event, refcon):
+                    if not self.ac_recording:
+                        return event
+                    try:
+                        keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+                        pressed = (event_type == kCGEventKeyDown)
+
+                        # macOS keycode → читаемое имя
+                        keycode_map = {
+                            0: 'a', 1: 's', 2: 'd', 3: 'f', 4: 'h', 5: 'g', 6: 'z', 7: 'x',
+                            8: 'c', 9: 'v', 11: 'b', 12: 'q', 13: 'w', 14: 'e', 15: 'r',
+                            16: 'y', 17: 't', 18: '1', 19: '2', 20: '3', 21: '4', 22: '6',
+                            23: '5', 24: '=', 25: '9', 26: '7', 27: '-', 28: '8', 29: '0',
+                            30: ']', 31: 'o', 32: 'u', 33: '[', 34: 'i', 35: 'p', 36: 'Key.enter',
+                            37: 'l', 38: 'j', 39: "'", 40: 'k', 41: ';', 42: '\\', 43: ',',
+                            44: '/', 45: 'n', 46: 'm', 47: '.', 48: 'Key.tab', 49: 'Key.space',
+                            50: '`', 51: 'Key.backspace', 53: 'Key.esc', 55: 'Key.cmd',
+                            56: 'Key.shift', 57: 'Key.caps_lock', 58: 'Key.alt', 59: 'Key.ctrl',
+                            96: 'Key.f5', 97: 'Key.f6', 98: 'Key.f7', 99: 'Key.f3', 100: 'Key.f8',
+                            101: 'Key.f9', 103: 'Key.f11', 105: 'Key.f13', 107: 'Key.f14',
+                            109: 'Key.f10', 111: 'Key.f12', 113: 'Key.f15', 118: 'Key.f4',
+                            120: 'Key.f2', 122: 'Key.f1', 123: 'Key.left', 124: 'Key.right',
+                            125: 'Key.down', 126: 'Key.up'
+                        }
+                        key_char = keycode_map.get(keycode, f'keycode_{keycode}')
+
+                        action = {
+                            "type": "key",
+                            "key": key_char,
+                            "pressed": pressed,
+                            "time": time.time() - self.ac_start_time
+                        }
+                        self.ac_recorded_actions.append(action)
+                        if pressed:
+                            logger.info(f"Key recorded: {key_char}")
+                            self.after(0, self.ac_update_info)
+                    except Exception as e:
+                        logger.error(f"Keyboard callback error: {e}")
                     return event
-                try:
-                    keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
-                    pressed = (event_type == kCGEventKeyDown)
-                    
-                    # Конвертируем keycode в читаемое имя
-                    keycode_map = {
-                        0: 'a', 1: 's', 2: 'd', 3: 'f', 4: 'h', 5: 'g', 6: 'z', 7: 'x',
-                        8: 'c', 9: 'v', 11: 'b', 12: 'q', 13: 'w', 14: 'e', 15: 'r',
-                        16: 'y', 17: 't', 18: '1', 19: '2', 20: '3', 21: '4', 22: '6',
-                        23: '5', 24: '=', 25: '9', 26: '7', 27: '-', 28: '8', 29: '0',
-                        30: ']', 31: 'o', 32: 'u', 33: '[', 34: 'i', 35: 'p', 36: 'Key.enter',
-                        37: 'l', 38: 'j', 39: "'", 40: 'k', 41: ';', 42: '\\', 43: ',',
-                        44: '/', 45: 'n', 46: 'm', 47: '.', 48: 'Key.tab', 49: 'Key.space',
-                        50: '`', 51: 'Key.backspace', 53: 'Key.esc', 55: 'Key.cmd',
-                        56: 'Key.shift', 57: 'Key.caps_lock', 58: 'Key.alt', 59: 'Key.ctrl',
-                        96: 'Key.f5', 97: 'Key.f6', 98: 'Key.f7', 99: 'Key.f3', 100: 'Key.f8',
-                        101: 'Key.f9', 103: 'Key.f11', 105: 'Key.f13', 107: 'Key.f14',
-                        109: 'Key.f10', 111: 'Key.f12', 113: 'Key.f15', 118: 'Key.f4',
-                        120: 'Key.f2', 122: 'Key.f1', 123: 'Key.left', 124: 'Key.right',
-                        125: 'Key.down', 126: 'Key.up'
-                    }
-                    key_char = keycode_map.get(keycode, f'keycode_{keycode}')
-                    
-                    action = {
-                        "type": "key",
-                        "key": key_char,
-                        "pressed": pressed,
-                        "time": time.time() - self.ac_start_time
-                    }
-                    self.ac_recorded_actions.append(action)
-                    if pressed:
-                        logger.info(f"Key recorded: {key_char}")
-                        self.after(0, self.ac_update_info)
-                except Exception as e:
-                    logger.error(f"Keyboard callback error: {e}")
-                return event
-            
-            # Создаём event tap для клавиатуры
-            event_mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp)
-            self.ac_event_tap = CGEventTapCreate(
-                kCGSessionEventTap,
-                kCGHeadInsertEventTap,
-                kCGEventTapOptionListenOnly,
-                event_mask,
-                keyboard_callback,
-                None
-            )
-            
-            if self.ac_event_tap:
-                run_loop_source = CFMachPortCreateRunLoopSource(None, self.ac_event_tap, 0)
-                
-                def run_tap():
-                    CFRunLoopAddSource(CFRunLoopGetCurrent(), run_loop_source, kCFRunLoopCommonModes)
-                    CGEventTapEnable(self.ac_event_tap, True)
-                    from Quartz import CFRunLoopRun
-                    CFRunLoopRun()
-                
-                self.ac_keyboard_thread = threading.Thread(target=run_tap, daemon=True)
-                self.ac_keyboard_thread.start()
-                logger.info("Keyboard recording started (Quartz CGEventTap)")
-            else:
-                logger.warning("Failed to create CGEventTap - check Accessibility permissions")
-                
-        except ImportError:
-            logger.warning("Quartz not available - keyboard recording disabled")
-        except Exception as e:
-            logger.error(f"Failed to setup keyboard recording: {e}")
+
+                # Создаём event tap для клавиатуры
+                event_mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp)
+                self.ac_event_tap = CGEventTapCreate(
+                    kCGSessionEventTap,
+                    kCGHeadInsertEventTap,
+                    kCGEventTapOptionListenOnly,
+                    event_mask,
+                    keyboard_callback,
+                    None
+                )
+
+                if self.ac_event_tap:
+                    run_loop_source = CFMachPortCreateRunLoopSource(None, self.ac_event_tap, 0)
+
+                    def run_tap():
+                        CFRunLoopAddSource(CFRunLoopGetCurrent(), run_loop_source, kCFRunLoopCommonModes)
+                        CGEventTapEnable(self.ac_event_tap, True)
+                        from Quartz import CFRunLoopRun
+                        CFRunLoopRun()
+
+                    self.ac_keyboard_thread = threading.Thread(target=run_tap, daemon=True)
+                    self.ac_keyboard_thread.start()
+                    logger.info("Keyboard recording started (Quartz CGEventTap)")
+                else:
+                    logger.warning("Failed to create CGEventTap - check Accessibility permissions")
+
+            except ImportError:
+                logger.warning("Quartz not available - keyboard recording disabled")
+            except Exception as e:
+                logger.error(f"Failed to setup keyboard recording: {e}")
     
     def ac_stop_recording(self, auto_save=True):
         if not self.ac_recording:
@@ -11118,15 +11172,26 @@ end tell
                 logger.error(f"Error stopping mouse listener: {e}")
             self.ac_mouse_listener = None
         
-        # Останавливаем keyboard listener (Quartz event tap)
-        if hasattr(self, 'ac_event_tap') and self.ac_event_tap:
-            try:
-                from Quartz import CGEventTapEnable
-                CGEventTapEnable(self.ac_event_tap, False)
-                logger.info("Keyboard event tap disabled")
-            except Exception as e:
-                logger.error(f"Error stopping keyboard event tap: {e}")
-            self.ac_event_tap = None
+        # Останавливаем keyboard listener
+        if IS_WINDOWS:
+            # Windows: pynput keyboard listener
+            if hasattr(self, 'ac_keyboard_listener') and self.ac_keyboard_listener:
+                try:
+                    self.ac_keyboard_listener.stop()
+                    logger.info("Keyboard listener stopped (pynput)")
+                except Exception as e:
+                    logger.error(f"Error stopping keyboard listener: {e}")
+                self.ac_keyboard_listener = None
+        else:
+            # macOS: Quartz event tap
+            if hasattr(self, 'ac_event_tap') and self.ac_event_tap:
+                try:
+                    from Quartz import CGEventTapEnable
+                    CGEventTapEnable(self.ac_event_tap, False)
+                    logger.info("Keyboard event tap disabled")
+                except Exception as e:
+                    logger.error(f"Error stopping keyboard event tap: {e}")
+                self.ac_event_tap = None
         
         # Считаем записанные клавиши
         key_count = sum(1 for a in self.ac_recorded_actions if a["type"] == "key" and a.get("pressed"))
@@ -11186,7 +11251,11 @@ end tell
             logger.info(f"Mouse controller OK, position: {test_pos}")
         except Exception as e:
             logger.error(f"Mouse controller error: {e}")
-            messagebox.showerror("Ошибка", f"Не удалось получить доступ к мыши:\n{e}\n\nПроверьте разрешения Accessibility в macOS!")
+            if IS_MACOS:
+                hint = "Проверьте разрешения Accessibility в macOS!\nСистемные настройки → Конфиденциальность → Универсальный доступ"
+            else:
+                hint = "Попробуйте запустить приложение от имени администратора."
+            messagebox.showerror("Ошибка", f"Не удалось получить доступ к мыши:\n{e}\n\n{hint}")
             return
         
         self.ac_playing = True

@@ -20,32 +20,55 @@ import subprocess
 import requests
 from datetime import datetime
 
+IS_WINDOWS = sys.platform == 'win32'
+IS_MACOS = sys.platform == 'darwin'
+
+
+def _open_path(path):
+    """Открыть файл/папку в системном менеджере"""
+    try:
+        if IS_MACOS:
+            subprocess.run(["open", path], capture_output=True)
+        elif IS_WINDOWS:
+            os.startfile(path)
+        else:
+            subprocess.run(["xdg-open", path], capture_output=True)
+    except Exception:
+        pass
+
 
 def is_app_translocated() -> bool:
     """
     Проверяет, запущено ли приложение из AppTranslocation (read-only)
-    Это происходит когда приложение скачано из интернета и не перемещено в Applications
+    Только для macOS — на Windows всегда False
     """
+    if IS_WINDOWS:
+        return False
     app_path = os.path.dirname(os.path.abspath(__file__))
-    # AppTranslocation директории содержат '/AppTranslocation/' в пути
     return '/AppTranslocation/' in app_path or app_path.startswith('/private/var/folders')
 
 
 def get_real_app_path() -> str:
     """
     Возвращает реальный путь к приложению (не translocated)
-    Если приложение в Applications - возвращает путь там
     """
-    # Стандартные пути установки
-    standard_paths = [
-        '/Applications/PhotoTools.app/Contents/Frameworks',
-        os.path.expanduser('~/Applications/PhotoTools.app/Contents/Frameworks'),
-    ]
-    
+    if IS_WINDOWS:
+        # Windows: стандартные пути установки
+        standard_paths = [
+            os.path.join(os.environ.get('PROGRAMFILES', 'C:\\Program Files'), 'PhotoTools'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'PhotoTools'),
+        ]
+    else:
+        # macOS: стандартные пути установки
+        standard_paths = [
+            '/Applications/PhotoTools.app/Contents/Frameworks',
+            os.path.expanduser('~/Applications/PhotoTools.app/Contents/Frameworks'),
+        ]
+
     for path in standard_paths:
-        if os.path.exists(path):
+        if path and os.path.exists(path):
             return path
-    
+
     # Если не нашли - возвращаем текущий путь
     return os.path.dirname(os.path.abspath(__file__))
 
@@ -61,7 +84,9 @@ INCLUDE_FILES = [
     "updater.py",
     "auto_updater.py",
     "requirements.txt",
+    "requirements_windows.txt",
     "start.command",
+    "start.bat",
     "README.md",
 ]
 
@@ -242,23 +267,30 @@ def upload_update(zip_path: str, version: str, description: str = "", published_
 
 def build_dmg(version: str, base_dir: str = None) -> str:
     """
-    Собирает приложение и создаёт DMG файл
-    Возвращает путь к DMG или None при ошибке
+    Собирает приложение и создаёт DMG (macOS) или ZIP-дистрибутив (Windows)
+    Возвращает путь к файлу дистрибутива или None при ошибке
     """
     if base_dir is None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    spec_file = os.path.join(base_dir, "PhotoTools.spec")
+
+    # Выбираем spec-файл по платформе
+    if IS_WINDOWS:
+        spec_file = os.path.join(base_dir, "PhotoTools_win.spec")
+        if not os.path.exists(spec_file):
+            spec_file = os.path.join(base_dir, "PhotoTools.spec")
+    else:
+        spec_file = os.path.join(base_dir, "PhotoTools.spec")
+
     if not os.path.exists(spec_file):
-        print("⚠️ PhotoTools.spec не найден, пропускаем сборку DMG")
+        print(f"⚠️ {os.path.basename(spec_file)} не найден, пропускаем сборку")
         return None
-    
+
     print(f"\n🔨 Сборка приложения v{version}...")
-    
+
     # Собираем через PyInstaller
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "PyInstaller", "PhotoTools.spec", "--clean", "--noconfirm"],
+            [sys.executable, "-m", "PyInstaller", spec_file, "--clean", "--noconfirm"],
             cwd=base_dir, capture_output=True, text=True, timeout=300
         )
         if result.returncode != 0:
@@ -271,53 +303,73 @@ def build_dmg(version: str, base_dir: str = None) -> str:
     except Exception as e:
         print(f"❌ Ошибка PyInstaller: {e}")
         return None
-    
-    # Проверяем что app создан
-    app_path = os.path.join(base_dir, "dist", "PhotoTools.app")
-    if not os.path.exists(app_path):
-        print("❌ PhotoTools.app не создан")
-        return None
 
-    # Очищаем карантинные атрибуты и провенанс
-    print("🧹 Очистка extended attributes...")
-    try:
-        subprocess.run(["xattr", "-cr", app_path], check=True, capture_output=True)
-        print("✅ Атрибуты очищены")
-    except Exception as e:
-        print(f"⚠️ Не удалось очистить атрибуты: {e}")
-
-    # Подписываем приложение ad-hoc подписью
-    print("✍️ Подпись приложения...")
-    try:
-        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app_path],
-                      check=True, capture_output=True)
-        print("✅ Приложение подписано")
-    except Exception as e:
-        print(f"⚠️ Не удалось подписать приложение: {e}")
-
-    # Создаём DMG
-    dmg_name = f"PhotoTools-{version}.dmg"
-    dmg_path = os.path.join(base_dir, dmg_name)
-    
-    # Удаляем старый DMG если есть
-    if os.path.exists(dmg_path):
-        os.remove(dmg_path)
-    
-    print(f"📦 Создание {dmg_name}...")
-    try:
-        result = subprocess.run(
-            ["hdiutil", "create", "-volname", "PhotoTools", "-srcfolder", app_path, 
-             "-ov", "-format", "UDZO", dmg_path],
-            cwd=base_dir, capture_output=True, text=True, timeout=120
-        )
-        if result.returncode != 0:
-            print(f"❌ Ошибка hdiutil: {result.stderr}")
+    if IS_WINDOWS:
+        # Windows: создаём ZIP из dist/PhotoTools/
+        dist_dir = os.path.join(base_dir, "dist", "PhotoTools")
+        if not os.path.exists(dist_dir):
+            print("❌ dist/PhotoTools/ не создан")
             return None
-        print(f"✅ DMG создан: {dmg_name}")
-        return dmg_path
-    except Exception as e:
-        print(f"❌ Ошибка создания DMG: {e}")
-        return None
+
+        zip_name = f"PhotoTools-{version}-win64.zip"
+        zip_path = os.path.join(base_dir, zip_name)
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+
+        print(f"📦 Создание {zip_name}...")
+        try:
+            shutil.make_archive(zip_path.replace('.zip', ''), 'zip', os.path.join(base_dir, "dist"), "PhotoTools")
+            print(f"✅ ZIP создан: {zip_name}")
+            return zip_path
+        except Exception as e:
+            print(f"❌ Ошибка создания ZIP: {e}")
+            return None
+    else:
+        # macOS: создаём DMG
+        app_path = os.path.join(base_dir, "dist", "PhotoTools.app")
+        if not os.path.exists(app_path):
+            print("❌ PhotoTools.app не создан")
+            return None
+
+        # Очищаем карантинные атрибуты и провенанс
+        print("🧹 Очистка extended attributes...")
+        try:
+            subprocess.run(["xattr", "-cr", app_path], check=True, capture_output=True)
+            print("✅ Атрибуты очищены")
+        except Exception as e:
+            print(f"⚠️ Не удалось очистить атрибуты: {e}")
+
+        # Подписываем приложение ad-hoc подписью
+        print("✍️ Подпись приложения...")
+        try:
+            subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app_path],
+                          check=True, capture_output=True)
+            print("✅ Приложение подписано")
+        except Exception as e:
+            print(f"⚠️ Не удалось подписать приложение: {e}")
+
+        # Создаём DMG
+        dmg_name = f"PhotoTools-{version}.dmg"
+        dmg_path = os.path.join(base_dir, dmg_name)
+
+        if os.path.exists(dmg_path):
+            os.remove(dmg_path)
+
+        print(f"📦 Создание {dmg_name}...")
+        try:
+            result = subprocess.run(
+                ["hdiutil", "create", "-volname", "PhotoTools", "-srcfolder", app_path,
+                 "-ov", "-format", "UDZO", dmg_path],
+                cwd=base_dir, capture_output=True, text=True, timeout=120
+            )
+            if result.returncode != 0:
+                print(f"❌ Ошибка hdiutil: {result.stderr}")
+                return None
+            print(f"✅ DMG создан: {dmg_name}")
+            return dmg_path
+        except Exception as e:
+            print(f"❌ Ошибка создания DMG: {e}")
+            return None
 
 
 def _get_repo_dir() -> str:
@@ -358,8 +410,11 @@ def create_github_release(version: str, description: str = "", base_dir: str = N
     try:
         _log_to_file(f"=== create_github_release v{version} ===")
         
-        # Проверяем наличие gh CLI (с полными путями для macOS)
-        gh_paths = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"]
+        # Проверяем наличие gh CLI
+        if IS_WINDOWS:
+            gh_paths = ["gh", "gh.exe"]
+        else:
+            gh_paths = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"]
         gh_cmd = None
         
         for path in gh_paths:
@@ -429,15 +484,16 @@ def create_github_release(version: str, description: str = "", base_dir: str = N
 
 {description if description else "Обновление PhotoTools"}
 
-### Установка:
+### macOS:
 1. Скачайте DMG файл
 2. Откройте и перетащите в Applications
 3. При первом запуске: ПКМ → Открыть
+4. Если ошибка "повреждено": `xattr -cr /Applications/PhotoTools.app`
 
-### Если ошибка "повреждено":
-```bash
-xattr -cr /Applications/PhotoTools.app
-```
+### Windows:
+1. Скачайте ZIP файл
+2. Распакуйте в удобную папку
+3. Запустите PhotoTools.exe
 """
         
         _log_to_file(f"DMG file: {dmg_file}")
@@ -656,42 +712,51 @@ def download_and_install_update(download_url: str, version: str) -> tuple:
 
 def _download_dmg_for_manual_install(version: str) -> tuple:
     """
-    Скачивает DMG из GitHub Releases для ручной установки
+    Скачивает DMG (macOS) или ZIP (Windows) из GitHub Releases для ручной установки
     """
     try:
-        # Получаем URL DMG из GitHub
-        dmg_url = f"https://github.com/pavkor1-design/fotya-tools/releases/download/v{version}/PhotoTools-{version}.dmg"
-        
+        if IS_WINDOWS:
+            ext = "win64.zip"
+            file_type = "ZIP"
+        else:
+            ext = "dmg"
+            file_type = "DMG"
+
+        dl_url = f"https://github.com/pavkor1-design/fotya-tools/releases/download/v{version}/PhotoTools-{version}.{ext}"
+
         downloads_dir = os.path.expanduser("~/Downloads")
-        dmg_path = os.path.join(downloads_dir, f"PhotoTools-{version}.dmg")
-        
-        print(f"📥 Скачивание DMG из GitHub...")
-        print(f"   URL: {dmg_url}")
-        
-        resp = requests.get(dmg_url, stream=True, timeout=120)
+        dl_path = os.path.join(downloads_dir, f"PhotoTools-{version}.{ext}")
+
+        print(f"📥 Скачивание {file_type} из GitHub...")
+        print(f"   URL: {dl_url}")
+
+        resp = requests.get(dl_url, stream=True, timeout=120)
         if resp.status_code != 200:
-            return False, f"DMG не найден на GitHub (HTTP {resp.status_code}).\n\nСкачайте вручную: https://github.com/pavkor1-design/fotya-tools/releases"
-        
+            return False, f"{file_type} не найден на GitHub (HTTP {resp.status_code}).\n\nСкачайте вручную: https://github.com/pavkor1-design/fotya-tools/releases"
+
         total_size = int(resp.headers.get('content-length', 0))
         downloaded = 0
-        
-        with open(dmg_path, 'wb') as f:
+
+        with open(dl_path, 'wb') as f:
             for chunk in resp.iter_content(chunk_size=8192):
                 f.write(chunk)
                 downloaded += len(chunk)
                 if total_size > 0:
                     percent = (downloaded / total_size) * 100
                     print(f"\r   Загружено: {downloaded / 1024:.1f} KB ({percent:.0f}%)", end="")
-        
-        print(f"\n✅ DMG скачан: {dmg_path}")
-        
+
+        print(f"\n✅ {file_type} скачан: {dl_path}")
+
         # Открываем папку Downloads
-        subprocess.run(["open", downloads_dir], capture_output=True)
-        
-        return True, f"DMG скачан в Downloads.\n\n1. Откройте {os.path.basename(dmg_path)}\n2. Перетащите PhotoTools в Applications\n3. Запустите новую версию"
-        
+        _open_path(downloads_dir)
+
+        if IS_WINDOWS:
+            return True, f"ZIP скачан в Downloads.\n\n1. Распакуйте {os.path.basename(dl_path)}\n2. Запустите PhotoTools.exe"
+        else:
+            return True, f"DMG скачан в Downloads.\n\n1. Откройте {os.path.basename(dl_path)}\n2. Перетащите PhotoTools в Applications\n3. Запустите новую версию"
+
     except Exception as e:
-        return False, f"Ошибка скачивания DMG: {str(e)}\n\nСкачайте вручную: https://github.com/pavkor1-design/fotya-tools/releases"
+        return False, f"Ошибка скачивания: {str(e)}\n\nСкачайте вручную: https://github.com/pavkor1-design/fotya-tools/releases"
 
 
 def download_and_install_update_with_progress(download_url: str, version: str, progress_callback=None) -> tuple:
@@ -790,25 +855,32 @@ def download_and_install_update_with_progress(download_url: str, version: str, p
 
 def _download_dmg_with_progress(version: str, progress_callback=None) -> tuple:
     """
-    Скачивает DMG и автоматически устанавливает в Applications
+    Скачивает DMG (macOS) или ZIP (Windows) и помогает установить
     """
     try:
-        dmg_url = f"https://github.com/pavkor1-design/fotya-tools/releases/download/v{version}/PhotoTools-{version}.dmg"
-        
+        if IS_WINDOWS:
+            ext = "win64.zip"
+            file_type = "ZIP"
+        else:
+            ext = "dmg"
+            file_type = "DMG"
+
+        dl_url = f"https://github.com/pavkor1-design/fotya-tools/releases/download/v{version}/PhotoTools-{version}.{ext}"
+
         downloads_dir = os.path.expanduser("~/Downloads")
-        dmg_path = os.path.join(downloads_dir, f"PhotoTools-{version}.dmg")
-        
+        dl_path = os.path.join(downloads_dir, f"PhotoTools-{version}.{ext}")
+
         if progress_callback:
-            progress_callback(0.15, "Скачивание DMG из GitHub...")
-        
-        resp = requests.get(dmg_url, stream=True, timeout=120)
+            progress_callback(0.15, f"Скачивание {file_type} из GitHub...")
+
+        resp = requests.get(dl_url, stream=True, timeout=120)
         if resp.status_code != 200:
-            return False, f"DMG не найден (HTTP {resp.status_code}).\n\nСкачайте вручную:\nhttps://github.com/pavkor1-design/fotya-tools/releases"
-        
+            return False, f"{file_type} не найден (HTTP {resp.status_code}).\n\nСкачайте вручную:\nhttps://github.com/pavkor1-design/fotya-tools/releases"
+
         total_size = int(resp.headers.get('content-length', 0))
         downloaded = 0
-        
-        with open(dmg_path, 'wb') as f:
+
+        with open(dl_path, 'wb') as f:
             for chunk in resp.iter_content(chunk_size=8192):
                 f.write(chunk)
                 downloaded += len(chunk)
@@ -816,36 +888,40 @@ def _download_dmg_with_progress(version: str, progress_callback=None) -> tuple:
                     progress = 0.15 + (downloaded / total_size * 0.7)
                     size_mb = downloaded / 1024 / 1024
                     total_mb = total_size / 1024 / 1024
-                    progress_callback(progress, f"Скачивание DMG: {size_mb:.1f} / {total_mb:.1f} MB")
-        
-        if progress_callback:
-            progress_callback(0.88, "Монтирование DMG...")
-        
-        # Монтируем DMG
-        mount_result = subprocess.run(
-            ["hdiutil", "attach", dmg_path, "-nobrowse", "-quiet"],
-            capture_output=True, text=True
-        )
-        
-        if mount_result.returncode != 0:
-            # Если не удалось смонтировать - открываем вручную
-            subprocess.run(["open", dmg_path], capture_output=True)
-            return True, f"DMG скачан и открыт.\n\n1. Перетащите PhotoTools в Applications\n2. Закройте это приложение\n3. Запустите новую версию"
-        
-        if progress_callback:
-            progress_callback(0.92, "Установка в Applications...")
-        
-        # Открываем DMG для ручной установки
-        if progress_callback:
-            progress_callback(0.95, "Открытие DMG...")
-        
-        subprocess.run(["open", "/Volumes/PhotoTools"], capture_output=True)
-        
-        if progress_callback:
-            progress_callback(1.0, "✅ DMG открыт!")
-        
-        return True, f"✅ DMG открыт!\n\n📋 Инструкция:\n1. Перетащите PhotoTools в Applications (замените старую версию)\n2. Закройте это приложение\n3. Запустите PhotoTools из Applications\n\nВерсия {version} будет установлена."
-        
+                    progress_callback(progress, f"Скачивание {file_type}: {size_mb:.1f} / {total_mb:.1f} MB")
+
+        if IS_WINDOWS:
+            # Windows: открываем папку с ZIP
+            if progress_callback:
+                progress_callback(0.95, "Открытие папки...")
+            _open_path(downloads_dir)
+            if progress_callback:
+                progress_callback(1.0, "✅ ZIP скачан!")
+            return True, f"✅ ZIP скачан!\n\n📋 Инструкция:\n1. Распакуйте {os.path.basename(dl_path)}\n2. Запустите PhotoTools.exe\n\nВерсия {version} будет установлена."
+        else:
+            # macOS: монтируем DMG
+            if progress_callback:
+                progress_callback(0.88, "Монтирование DMG...")
+
+            mount_result = subprocess.run(
+                ["hdiutil", "attach", dl_path, "-nobrowse", "-quiet"],
+                capture_output=True, text=True
+            )
+
+            if mount_result.returncode != 0:
+                _open_path(dl_path)
+                return True, f"DMG скачан и открыт.\n\n1. Перетащите PhotoTools в Applications\n2. Закройте это приложение\n3. Запустите новую версию"
+
+            if progress_callback:
+                progress_callback(0.95, "Открытие DMG...")
+
+            subprocess.run(["open", "/Volumes/PhotoTools"], capture_output=True)
+
+            if progress_callback:
+                progress_callback(1.0, "✅ DMG открыт!")
+
+            return True, f"✅ DMG открыт!\n\n📋 Инструкция:\n1. Перетащите PhotoTools в Applications (замените старую версию)\n2. Закройте это приложение\n3. Запустите PhotoTools из Applications\n\nВерсия {version} будет установлена."
+
     except Exception as e:
         return False, f"Ошибка: {str(e)}\n\nСкачайте вручную:\nhttps://github.com/pavkor1-design/fotya-tools/releases"
 
